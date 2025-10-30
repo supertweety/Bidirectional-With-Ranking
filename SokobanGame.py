@@ -23,6 +23,34 @@ class SokobanGame:
     
     def hasDeadlock(self, board):
         ### To Be Implemented
+        box_locs = list(zip(*(np.where(board == 4))))
+        surround = [(-1, 0), (0, 1), (1,0), (0,-1) ]
+        rows, cols = board.shape
+
+        for r, c in box_locs:
+            blocked_count = 0
+            
+            # Check the four surrounding positions
+            for dr, dc in surround:
+                nr, nc = r + dr, c + dc  # New row, new column
+                
+                # Check for boundary issues (this box is next to the board edge)
+                if not (0 <= nr < rows and 0 <= nc < cols):
+                    # Count the boundary as a blocked side
+                    blocked_count += 1
+                    continue
+                
+                # Check if the surrounding cell contains an immovable object:
+                # Wall (1), or another Box/Box-on-Target (4 or 5)
+                if board[nr, nc] == 0:
+                    blocked_count += 1
+            
+            # If 3 or 4 sides are blocked, it's a three-sided trap.
+            if blocked_count >= 3:
+                # We found a box that is trapped
+                return True
+                
+        # No boxes were found to be trapped on three or more sides
         return False
 
     @staticmethod

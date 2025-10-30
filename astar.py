@@ -44,8 +44,8 @@ class Astar():
             The new map/puzzle state after the step, or None if the search is complete 
             (goal reached or heap is empty).
         """
-        # if self.heap.length() == 0:
-        #     return (False, None)
+        if self.heap.length() == 0:
+            return (False, self.game.puzzle)
         notVisited = False
         while not notVisited:
             ma = self.heap.getMin()
