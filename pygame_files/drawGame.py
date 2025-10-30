@@ -1,6 +1,6 @@
 import pygame
 from getData import get_data
-
+import numpy as np
 class Button:
     def __init__(self, obj, x, y, onClick):
         self.obj = obj
@@ -34,24 +34,24 @@ def draw_game(board, screen, input = None):
             player = pygame.image.load("pygame_files/player_sprites/player_down.png")
     for i in range(len(board)):
         for j in range(len(board[i])):
-            if board[i][j] == 0:
+            if board[j][i] == 0:
                 screen.blit(wall, (wall_width*i, wall_height*j))
-            elif board[i][j] == 1:
+            elif board[j][i] == 1:
                 screen.blit(floor, (floor.get_width()*i, floor.get_height()*j))
-            elif board[i][j] == 2:
+            elif board[j][i] == 2:
                 screen.blit(target, (target.get_width()*i, target.get_height()*j))
-            elif board[i][j] == 4:
+            elif board[j][i] == 4:
                 screen.blit(block, (block.get_width()*i, block.get_height()*j))
-            elif board[i][j] == 3:
+            elif board[j][i] == 3:
                 screen.blit(player, (player.get_width()*i, player.get_height()*j)) 
    
     arrow = pygame.image.load("pygame_files/arrow.png")
-    screen.blit(arrow, (640 - arrow.get_width(),480 - arrow.get_height()))
+    screen.blit(arrow, (640 - arrow.get_width(),640 - arrow.get_height()))
     def click(obj, mouse_x, mouse_y, x ,y):
-        if (x  <= mouse_x <= 640) and (y <= mouse_y <= 480):
+        if (x  <= mouse_x <= 640) and (y <= mouse_y <= 640):
             return True
         return False
-    arrow_btn = Button(arrow, 640 - arrow.get_width(),480 - arrow.get_height(), click  )
+    arrow_btn = Button(arrow, 640 - arrow.get_width(),640 - arrow.get_height(), click  )
     return arrow_btn
 
 def draw_finish_screen(board, screen, input = None):

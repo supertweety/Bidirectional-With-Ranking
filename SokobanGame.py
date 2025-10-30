@@ -6,12 +6,12 @@ class SokobanGame:
         self.puzzle = puzzle
         self.target = list(zip(*(np.where(puzzle == 2))))
         self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target)]
-        if isBidrectional == True:
-            self.back_targets = list(zip(*(np.where(puzzle == 4))))
-            self.backwardPuzzle = self.initializeBackwardPuzzle(self.puzzle)
+        # if isBidrectional == True:
+        #     self.back_targets = list(zip(*(np.where(puzzle == 4))))
+        #     self.backwardPuzzle = self.initializeBackwardPuzzle(self.puzzle)
 
-
-    def initializeBackwardPuzzle(self, board):
+    @staticmethod
+    def initializeBackwardPuzzle(board):
         new_copy = copy.deepcopy(board)
         for row in range(len(board)):
             for col in range(len(board[0])):
@@ -20,7 +20,24 @@ class SokobanGame:
                 elif new_copy[row][col] == 2:
                     new_copy[row][col] = 4
         return new_copy
+    
+    def hasDeadlock(self, board):
+        ### To Be Implemented
+        return False
 
+    @staticmethod
+    def decodeMap(map_string):
+        int_list = [int(digit) for digit in map_string]
+            
+        # 2. Convert the list to a 1D NumPy array
+        flat_numpy_array = np.array(int_list)
+        
+        # 3. Reshape the 1D array back to the original dimensions
+        decoded_map = flat_numpy_array.reshape((10,10))
+        # You might want to convert it back to a standard Python list of lists 
+        # if that was the original format:
+        # decoded_map_list = decoded_map.tolist()
+        return decoded_map
     def encodeMap(self,map):
         numpyMap = np.array(map)
         flattened = np.ravel(numpyMap)
@@ -63,13 +80,18 @@ class SokobanGame:
         return player_location
     def move(self,current_loc, direction):
         new_board, cleared_spot = None, None
+        #print(direction)
         if direction == (-1, 0): # up
+             
             new_board, cleared_spot = self.actions[0].moveAndUpdateBoard(current_loc, self.puzzle)
         elif direction == (1,0): # down
+              
              new_board, cleared_spot = self.actions[1].moveAndUpdateBoard(current_loc, self.puzzle)
         elif direction == (0,1): # right
+              
              new_board, cleared_spot = self.actions[3].moveAndUpdateBoard(current_loc, self.puzzle)
         else: # left
+             
              new_board, cleared_spot = self.actions[2].moveAndUpdateBoard(current_loc, self.puzzle)
     
         if new_board is None:
