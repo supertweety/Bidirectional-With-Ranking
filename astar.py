@@ -37,6 +37,7 @@ class Astar():
         return self.current_map
     
     def stepAstar(self) -> Tuple[bool, Optional[list]]:
+
         """
         Executes one step of the A* search algorithm.
         
