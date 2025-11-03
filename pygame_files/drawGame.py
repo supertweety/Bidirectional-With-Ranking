@@ -100,7 +100,6 @@ def draw_bidirectional_screen(board,screen, direction, input = None):
     reverse = pygame.image.load("pygame_files/reverse.png")
     screen.blit(reverse, (640 - reverse.get_width(), 0))
     reverse_btn = Button(reverse, 640 - reverse.get_width(), 0, click  )
-
     if direction == True:
         redrawText("Forward", screen)
     else:

@@ -146,7 +146,7 @@ def biBaseRun():
                 break
             pbar.update(1) # Increment the counter by 1
             i += 1
-    draw_game(current_forward_map)
+    draw_game(current_forward_map, screen)
     pygame.display.flip()
     isForward = True
     while True:
@@ -238,17 +238,18 @@ def bidirectionalStepRun(running, is_completed):
                     is_back_solution, current_backward_map = backwardAStar.stepAstar()
                     encoded_forward_map = forwardAStar.game.encodeMap(current_forward_map) 
                     encoded_backward_map = backwardAStar.game.encodeMap(current_backward_map)
-                    # if encoded_backward_map == encoded_forward_map:
+                    if encoded_backward_map == encoded_forward_map:
                         
-                    #     is_completed= True
-                    #     draw_finish_screen(current_forward_map, screen)
-                    #     continue 
-                    # elif is_front_solution == True or is_back_solution == True:
+                        is_completed= True
+                        draw_finish_screen(current_forward_map, screen)
+                        continue 
+                    elif is_front_solution == True or is_back_solution == True:
                         
-                    #     is_completed= True
-                    #     print("Did not Converge")
-                    #     draw_finish_screen(current_backward_map, screen)
-                    #     continue
+                        is_completed= True
+                        print("Did not Converge")
+                        draw_finish_screen(current_backward_map, screen)
+                        continue
+                    
                     if isForward:
                         draw_bidirectional_screen(current_forward_map, screen, isForward)
                     else:
@@ -256,12 +257,12 @@ def bidirectionalStepRun(running, is_completed):
                     
                     
                 elif flip_button.command(mouse[0], mouse[1]) == True:
-                    if isForward:
-                        draw_bidirectional_screen(current_backward_map, screen, isForward)
-                    else:
-                        draw_bidirectional_screen(current_forward_map, screen, isForward)
                     isForward = not isForward
-
+                    if isForward:
+                        draw_bidirectional_screen(current_forward_map, screen, isForward)
+                    else:
+                        draw_bidirectional_screen(current_backward_map, screen, isForward)
+                    
     # next_map = aStar.stepAstar()
     # draw_game(next_map)
     # fill the screen with a color to wipe away anything from last frame
@@ -315,6 +316,7 @@ if __name__ == "__main__":
     if args.forward_or_bidirectional == "forward":
         
         button = draw_game(only_one_state, screen)
+        
         aStar = Astar(only_one_state, "Sokoban")
         aStar.initAstar()
         if args.with_or_without_pygame == 'False':
@@ -331,7 +333,8 @@ if __name__ == "__main__":
         button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
         forwardAStar = Astar(only_one_state, "Sokoban")
         backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(only_one_state)
-        backwardAStar = Astar(backward_puzzle, "Sokoban")
+        #print(forwardAStar.game.encodeMap(backward_puzzle))
+        backwardAStar = Astar(backward_puzzle, "Sokoban", True)
         forwardAStar.initAstar()
         backwardAStar.initAstar()
         if args.with_or_without_pygame == 'False':

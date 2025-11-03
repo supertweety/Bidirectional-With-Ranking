@@ -7,9 +7,9 @@ GameMap = {
 }
 
 class Astar():
-    def __init__(self, puzzle, game_name):
+    def __init__(self, puzzle, game_name, isBackward = False):
         self.dim = 10
-        self.game = GameMap[game_name](puzzle)
+        self.game = GameMap[game_name](puzzle, isBackward)
         self.puzzle = puzzle
         # Instance variables to hold the state of the A* search
         self.visited: Set[str] = set()
@@ -18,6 +18,7 @@ class Astar():
         self.current_loc: Optional[Tuple[int, int]] = None
         self.current_map: Optional[list] = None # Will store the map/puzzle corresponding to current_loc
         self.iteration = 0
+        self.isBackward=isBackward
     def isComplete(self):
         return not (self.heap.length() > 0)
     def initAstar(self):
@@ -31,7 +32,7 @@ class Astar():
         self.current_loc = self.game.getPlayerLocation(self.puzzle)
         
         # Insert initial state: path 0, location, and the initial map
-        self.heap.insert(0, (self.current_loc, self.game.puzzle))
+        self.heap.insert(0,(self.current_loc, self.game.puzzle))
         self.current_map = self.game.puzzle
         
         return self.current_map
@@ -50,12 +51,14 @@ class Astar():
         notVisited = False
         while not notVisited:
             ma = self.heap.getMin()
+
             if self.game.encodeMap(ma[1][1]) not in self.visited:
                     if self.game.hasDeadlock(ma[1][1]):
                         self.visited.add(self.game.encodeMap(ma[1][1]))
                         continue
                     notVisited = True
         current_map_score = ma[0]
+
         map_location_tuple = ma[1]
         encodedMap = self.game.encodeMap(map_location_tuple[1])
         self.visited.add(encodedMap)
@@ -84,8 +87,12 @@ class Astar():
         directions = self.game.availableStates(current_loc)
         #print(ma[1])
         current_rank_heap = []
-        for direction in directions:
-            new_map = self.game.move(current_loc, direction)
+        push_count = 0
+        for direction_and_movement in directions:
+            direction = direction_and_movement[0]
+            new_map = self.game.move(current_loc, direction_and_movement)
+            # if self.isBackward:
+            #     print(self.game.encodeMap(new_map))
             #print("new _amp", new_map)
             #print("dir test", self.game.encodeMap(new_map), visited, self.game.encodeMap(new_map) in visited , new_map)
             # if self.game.encodeMap(new_map) in self.visited:
@@ -95,15 +102,19 @@ class Astar():
                     return (True, new_map)
                 score = self.game.evaluateBoard(new_map)
                 aStarScore = current_map_score + score + 1
-                heapq.heappush(current_rank_heap,[aStarScore,((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map)])
+                # if self.isBackward:
+                #     print(aStarScore, current_map_score, current_rank_heap)
+                heapq.heappush(current_rank_heap,[aStarScore, push_count, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map)])
                 #print("score", score)
                 #print((current_loc[0]+direction[0], current_loc[1] + direction[1]))
                 #self.parentMap[self.game.encodeMap(new_map)] = encodedMap
                 #self.heap.insert(score,((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map))
+            push_count += 1
         self.iteration += 1
         while len(current_rank_heap) > 0:
-            top_element = heapq.heappop(current_rank_heap)[1]     
+            top_element = heapq.heappop(current_rank_heap)[2]
             self.heap.insert(current_map_score + 1, top_element)
+
         #print(encodedMap in self.parentMap)
         #self.parentMap[self.game.encodeMap(self.heap.peek()[1])] = encodedMap
         #print(multiple_maps_for_backwards)
@@ -154,7 +165,7 @@ class PriorityQ:
         #heapq.heappush(self.elements, [value, self.counter, element])
         self.counter += 1
     def getMin(self):
-        return self.elements.pop()
+        return self.elements.pop(0)
         #return heapq.heappop(self.elements)[2]
     def length(self):
         return len(self.elements)  

@@ -2,10 +2,29 @@ from typing import Tuple
 import copy
 import numpy as np
 class SokobanGame:
-    def __init__(self, puzzle, isBidrectional = False):
+    def __init__(self, puzzle, isBackward = False):
         self.puzzle = puzzle
         self.target = list(zip(*(np.where(puzzle == 2))))
-        self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target)]
+        # if isBackward:
+        #     self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target), self.PullUp(self.target), self.PullDown(self.target), self.PullLeft(self.target), self.PullRight(self.target)]
+        # else:
+        #     self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target)]
+        self.action_map = {
+            (-1, 0): self.Up(self.target, isBackward),      # Up
+            (1, 0): self.Down(self.target, isBackward),    # Down
+            (0, -1): self.Left(self.target, isBackward),   # Left (Note: Changed from (0, 1) in your original logic)
+            (0, 1): self.Right(self.target, isBackward),   # Right (Note: Changed from (0, -1) in your original logic)
+        }
+        self.isBackward = isBackward
+        # If backward search, add the 'Pull' actions to the map
+        if isBackward:
+            # Note: Assuming Pull actions use the same directional tuples for their 'move' logic
+            self.pull_action_map = {
+                (-1, 0): self.PullUp(self.target),    # PullUp (Overrides Up)
+                (1, 0): self.PullDown(self.target),  # PullDown (Overrides Down)
+                (0, -1): self.PullLeft(self.target), # PullLeft (Overrides Left)
+                (0, 1): self.PullRight(self.target), # PullRight (Overrides Right)
+            }
         # if isBidrectional == True:
         #     self.back_targets = list(zip(*(np.where(puzzle == 4))))
         #     self.backwardPuzzle = self.initializeBackwardPuzzle(self.puzzle)
@@ -101,36 +120,32 @@ class SokobanGame:
             new_loc = self.puzzle[new_tuple[0]][new_tuple[1]]
             if new_loc != 0:
                 availableTuples.append(block)
-        return availableTuples
+        tuple_map = []
+        for tuple in availableTuples:
+            tuple_map.append((tuple, self.action_map[tuple]))
+        if self.isBackward:
+            for tuple in surrounding_blocks:
+                tuple_map.append((tuple, self.pull_action_map[tuple]))
+        return tuple_map
     def getPlayerLocation(self, board):
         loc = np.where(board == 3)
         player_location: Tuple[int,int] = (loc[0][0], loc[1][0])
         return player_location
-    def move(self,current_loc, direction):
-        new_board, cleared_spot = None, None
-        #print(direction)
-        if direction == (-1, 0): # up
-             
-            new_board, cleared_spot = self.actions[0].moveAndUpdateBoard(current_loc, self.puzzle)
-        elif direction == (1,0): # down
-              
-             new_board, cleared_spot = self.actions[1].moveAndUpdateBoard(current_loc, self.puzzle)
-        elif direction == (0,1): # right
-              
-             new_board, cleared_spot = self.actions[3].moveAndUpdateBoard(current_loc, self.puzzle)
-        else: # left
-             
-             new_board, cleared_spot = self.actions[2].moveAndUpdateBoard(current_loc, self.puzzle)
+    def move(self,current_loc, direction_and_movement):
+        movement = direction_and_movement[1]
+        #action_object = self.action_map.get(direction)
+        
+        # 3. Execute the move
+        new_board = movement.moveAndUpdateBoard(current_loc, self.puzzle)
     
         if new_board is None:
             return None
-        if cleared_spot != None:
-            self.target = self.target[self.target != cleared_spot]
         return new_board
 
     class Move:
-        def __init__(self, target_locations):
+        def __init__(self, target_locations, isBackward):
             self.target_locations = target_locations
+            self.isBackward = isBackward
             pass
         def canMove(self, currentLocation, board): #bool to see if moving in that direction is possible
             raise NotImplementedError
@@ -148,33 +163,28 @@ class SokobanGame:
             if board[new_loc[0]][new_loc[1]] == 0: # if wall is there
                 res = False
             ## next check if its a block
+            if self.isBackward and board[new_loc[0]][new_loc[1]] == 4:
+                return False
             if board[new_loc[0]][new_loc[1]] == 4 and (board[new_loc[0] -1][new_loc[1]] == 0 or board[new_loc[0] - 1][new_loc[1]] == 4):
                 res = False # because it means it wants to move the block but the block cant move and cant move two blocks at once
             return res
         def moveAndUpdateBoard(self, currentLocation, board):
             if not self.canMove(currentLocation, board):
-                
-                return [None, None]
+                return None
             new_loc = (currentLocation[0] - 1, currentLocation[1])
             new_copy = copy.deepcopy(board)
             res = None
             if new_copy[new_loc[0]][new_loc[1]] == 1 or new_copy[new_loc[0]][new_loc[1]] == 2: # open space
                 new_copy[new_loc[0]][new_loc[1]] = 3
                 new_copy[currentLocation[0]][currentLocation[1]] = 1
-                res =  [new_copy,None]
+                res =  new_copy
             ## next check if its a block
             if new_copy[new_loc[0]][new_loc[1]] == 4:
-                if new_copy[new_loc[0] - 1][new_loc[1]] == 3:
-                    new_copy[new_loc[0] - 1][new_loc[1]] = 1
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, (new_loc[0] - 1,new_loc[1])]
-                else:
-                    new_copy[new_loc[0] - 1][new_loc[1]] = 4
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, None]
-            res[0] = self.resetTargetSpots(new_copy)
+                new_copy[new_loc[0] - 1][new_loc[1]] = 4
+                new_copy[new_loc[0]][new_loc[1]] = 3
+                new_copy[currentLocation[0]][currentLocation[1]] = 1
+                res = new_copy
+            res = self.resetTargetSpots(new_copy)
             return res
 
     class Down(Move):
@@ -184,32 +194,28 @@ class SokobanGame:
             if board[new_loc[0]][new_loc[1]] == 0: # if wall is there
                 res =  False
             ## next check if its a block
+            if self.isBackward and board[new_loc[0]][new_loc[1]] == 4:
+                return False
             if board[new_loc[0]][new_loc[1]] == 4 and (board[new_loc[0] + 1][new_loc[1]] == 0 or board[new_loc[0] + 1][new_loc[1]] == 4):
                 res =  False # because it means it wants to move the block but the block cant move and cant move two blocks at once
             return res
         def moveAndUpdateBoard(self, currentLocation, board):
             if not self.canMove(currentLocation, board):
-                return [None, None]
+                return None
             new_loc = (currentLocation[0] + 1, currentLocation[1])
             new_copy = copy.deepcopy(board)
             res = None
             if board[new_loc[0]][new_loc[1]] == 1 or new_copy[new_loc[0]][new_loc[1]] == 2: # open space
                 new_copy[new_loc[0]][new_loc[1]] = 3
                 new_copy[currentLocation[0]][currentLocation[1]] = 1
-                res = [new_copy,None]
+                res = new_copy
             ## next check if its a block
             if board[new_loc[0]][new_loc[1]] == 4:
-                if new_copy[new_loc[0] + 1][new_loc[1]] == 3:
-                    new_copy[new_loc[0] + 1][new_loc[1]] = 1
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, (new_loc[0] + 1,new_loc[1])]
-                else:
-                    new_copy[new_loc[0] + 1][new_loc[1]] = 4
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, None]
-            res[0] = self.resetTargetSpots(new_copy)
+                new_copy[new_loc[0] + 1][new_loc[1]] = 4
+                new_copy[new_loc[0]][new_loc[1]] = 3
+                new_copy[currentLocation[0]][currentLocation[1]] = 1
+                res = new_copy
+            res = self.resetTargetSpots(new_copy)
             return res
     class Left(Move):
         def canMove(self, currentLocation, board):
@@ -218,32 +224,28 @@ class SokobanGame:
             if board[new_loc[0]][new_loc[1]] == 0: # if wall is there
                 res = False
             ## next check if its a block
+            if self.isBackward and board[new_loc[0]][new_loc[1]] == 4:
+                return False
             if board[new_loc[0]][new_loc[1]] == 4 and (board[new_loc[0]][new_loc[1] - 1] == 0 or board[new_loc[0]][new_loc[1] - 1] == 4):
                 res = False # because it means it wants to move the block but the block cant move and cant move two blocks at once
             return res
         def moveAndUpdateBoard(self, currentLocation, board):
             if not self.canMove(currentLocation, board):
-                return [None, None]
+                return None
             new_loc = (currentLocation[0], currentLocation[1] - 1)
             new_copy = copy.deepcopy(board)
             res = None
             if board[new_loc[0]][new_loc[1]] == 1 or new_copy[new_loc[0]][new_loc[1]] == 2: # open space
                 new_copy[new_loc[0]][new_loc[1]] = 3
                 new_copy[currentLocation[0]][currentLocation[1]] = 1
-                res =  [new_copy,None]
+                res =  new_copy
             ## next check if its a block
             if board[new_loc[0]][new_loc[1]] == 4:
-                if new_copy[new_loc[0]][new_loc[1] - 1] == 3:
-                    new_copy[new_loc[0]][new_loc[1] - 1] = 1
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, (new_loc[0],new_loc[1] - 1)]
-                else:
-                    new_copy[new_loc[0]][new_loc[1] - 1] = 4
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, None]
-            res[0] = self.resetTargetSpots(new_copy)
+                new_copy[new_loc[0]][new_loc[1] - 1] = 4
+                new_copy[new_loc[0]][new_loc[1]] = 3
+                new_copy[currentLocation[0]][currentLocation[1]] = 1
+                res = new_copy
+            res = self.resetTargetSpots(new_copy)
             return res
 
     class Right(Move):
@@ -253,13 +255,15 @@ class SokobanGame:
             if board[new_loc[0]][new_loc[1]] == 0: # if wall is there
                 res = False
             ## next check if its a block
+            if self.isBackward and board[new_loc[0]][new_loc[1]] == 4:
+                return False
             if board[new_loc[0]][new_loc[1]] == 4 and (board[new_loc[0]][new_loc[1] + 1] == 0 or board[new_loc[0]][new_loc[1] + 1] == 4):
                 res = False # because it means it wants to move the block but the block cant move and cant move two blocks at once
             return res
         def moveAndUpdateBoard(self, currentLocation, board):
 
             if not self.canMove(currentLocation, board):
-                return [None, None]
+                return None
             new_loc = (currentLocation[0], currentLocation[1] + 1)
             new_copy = copy.deepcopy(board)
             res = None
@@ -267,18 +271,116 @@ class SokobanGame:
 
                 new_copy[new_loc[0]][new_loc[1]] = 3
                 new_copy[currentLocation[0]][currentLocation[1]] = 1
-                res = [new_copy,None]
+                res = new_copy
             ## next check if its a block
             if board[new_loc[0]][new_loc[1]] == 4:
-                if new_copy[new_loc[0]][new_loc[1] + 1] == 3:
-                    new_copy[new_loc[0]][new_loc[1] + 1] = 1
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, (new_loc[0],new_loc[1] + 1)]
-                else:
-                    new_copy[new_loc[0]][new_loc[1] + 1] = 4
-                    new_copy[new_loc[0]][new_loc[1]] = 3
-                    new_copy[currentLocation[0]][currentLocation[1]] = 1
-                    res = [new_copy, None]
-            res[0] = self.resetTargetSpots(new_copy)
+                new_copy[new_loc[0]][new_loc[1] + 1] = 4
+                new_copy[new_loc[0]][new_loc[1]] = 3
+                new_copy[currentLocation[0]][currentLocation[1]] = 1
+                res = new_copy
+            res = self.resetTargetSpots(new_copy)
             return res
+    class Pull:
+        def __init__(self, target_locations):
+            self.target_locations = target_locations
+            pass
+        def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
+            raise NotImplementedError
+        def moveAndUpdateBoard(self, currentLocation, board) -> Tuple[list[list[int]], Tuple[int,int]]: # tuple is for if a target was hit, otherwise just None
+            raise NotImplementedError
+        def resetTargetSpots(self,board):
+            for target_loc in self.target_locations:
+                if board[target_loc[0]][target_loc[1]] != 4 and board[target_loc[0]][target_loc[1]] != 3:
+                    board[target_loc[0]][target_loc[1]]= 2
+            return board
+        
+    class PullUp(Pull):
+        def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
+            ## first check if there is a block to pull
+            res = True
+            block_location = (currentLocation[0] + 1, currentLocation[1])
+
+            if board[block_location[0]][block_location[1]] != 4:
+                res =  False
+            ## next see if there is a block above us
+            move_to_spot = (currentLocation[0] - 1, currentLocation[1])
+            if board[move_to_spot[0]][move_to_spot[1]] != 1 and board[move_to_spot[0]][move_to_spot[1]] != 2:
+                res = False
+            return res
+            
+        def moveAndUpdateBoard(self, currentLocation, board) -> Tuple[list[list[int]], Tuple[int,int]]: # tuple is for if a target was hit, otherwise just None
+            if not self.canPull(currentLocation, board):
+                return None
+            new_copy = copy.deepcopy(board)
+            new_loc = (currentLocation[0] - 1, currentLocation[1])
+            
+            new_copy[new_loc[0]][new_loc[1]] = 3
+            new_copy[currentLocation[0]][currentLocation[1]] = 4
+            new_copy[currentLocation[0] + 1][currentLocation[1]] = 1
+            new_copy = self.resetTargetSpots(new_copy)
+            return new_copy
+        
+    class PullDown(Pull):
+        def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
+            block_location = (currentLocation[0] - 1, currentLocation[1])
+            if board[block_location[0]][block_location[1]] != 4:
+                return False
+            move_to_spot = (currentLocation[0] + 1, currentLocation[1])
+            if board[move_to_spot[0]][move_to_spot[1]] != 1 and board[move_to_spot[0]][move_to_spot[1]] != 2:
+                return False
+            return True
+        
+        def moveAndUpdateBoard(self, currentLocation, board) -> Tuple[list[list[int]], Tuple[int,int]]: # tuple is for if a target was hit, otherwise just None
+            if not self.canPull(currentLocation, board):
+                return None
+            new_copy = copy.deepcopy(board)
+            new_loc = (currentLocation[0] + 1, currentLocation[1])
+
+            new_copy[new_loc[0]][new_loc[1]] = 3
+            new_copy[currentLocation[0]][currentLocation[1]] = 4
+            new_copy[currentLocation[0] - 1][currentLocation[1]] = 1
+            new_copy = self.resetTargetSpots(new_copy)
+            return new_copy
+        
+    class PullLeft(Pull):
+        def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
+            block_location = (currentLocation[0], currentLocation[1] +1)
+            if board[block_location[0]][block_location[1]] != 4:
+                return False
+            move_to_spot = (currentLocation[0], currentLocation[1] - 1)
+            if board[move_to_spot[0]][move_to_spot[1]] != 1 and board[move_to_spot[0]][move_to_spot[1]] != 2:
+                return False
+            return True
+        
+        def moveAndUpdateBoard(self, currentLocation, board) -> Tuple[list[list[int]], Tuple[int,int]]: # tuple is for if a target was hit, otherwise just None
+            if not self.canPull(currentLocation, board):
+                return None
+            new_copy = copy.deepcopy(board)
+            new_loc = (currentLocation[0], currentLocation[1] - 1)
+
+            new_copy[new_loc[0]][new_loc[1]] = 3
+            new_copy[currentLocation[0]][currentLocation[1]] = 4
+            new_copy[currentLocation[0]][currentLocation[1] + 1] = 1
+            new_copy = self.resetTargetSpots(new_copy)
+            return new_copy
+        
+    class PullRight(Pull):
+        def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
+            block_location = (currentLocation[0], currentLocation[1] -1)
+            if board[block_location[0]][block_location[1]] != 4:
+                return False
+            move_to_spot = (currentLocation[0], currentLocation[1] + 1)
+            if board[move_to_spot[0]][move_to_spot[1]] != 1 and board[move_to_spot[0]][move_to_spot[1]] != 2:
+                return False
+            return True
+        
+        def moveAndUpdateBoard(self, currentLocation, board) -> Tuple[list[list[int]], Tuple[int,int]]: # tuple is for if a target was hit, otherwise just None
+            if not self.canPull(currentLocation, board):
+                return None
+            new_copy = copy.deepcopy(board)
+            new_loc = (currentLocation[0], currentLocation[1] + 1)
+            new_copy[new_loc[0]][new_loc[1]] = 3
+            new_copy[currentLocation[0]][currentLocation[1]] = 4
+            new_copy[currentLocation[0]][currentLocation[1] - 1] = 1
+            new_copy = self.resetTargetSpots(new_copy)
+            return new_copy
