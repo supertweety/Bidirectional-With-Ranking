@@ -7,8 +7,10 @@ import sys
 import argparse
 from tqdm import tqdm
 import time
+from nn import NN
 # pygame setup
 # pygame.init()
+
 # screen = pygame.display.set_mode((640, 640))
 # clock = pygame.time.Clock()
 # running = True
@@ -146,23 +148,36 @@ def biBaseRun():
                 break
             pbar.update(1) # Increment the counter by 1
             i += 1
-    draw_game(current_forward_map, screen)
-    pygame.display.flip()
-    isForward = True
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                break
-            if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False:
-                mouse = pygame.mouse.get_pos()
-                if flip_button.command(mouse[0], mouse[1]) == True:
-                    if isForward:
-                        draw_bidirectional_screen(current_backward_map, screen, isForward)
-                    else:
-                        draw_bidirectional_screen(current_forward_map, screen, isForward)
-                    isForward = not isForward
-        pygame.display.flip()
-        clock.tick(60)
+    print(current_forward_map)
+    # draw_game(current_forward_map, screen)
+    # pygame.display.flip()
+    # isForward = True
+    # while True:
+    #     for event in pygame.event.get():
+    #         if event.type == pygame.QUIT:
+    #             break
+    #         if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False:
+    #             mouse = pygame.mouse.get_pos()
+    #             if flip_button.command(mouse[0], mouse[1]) == True:
+    #                 if isForward:
+    #                     draw_bidirectional_screen(current_backward_map, screen, isForward)
+    #                 else:
+    #                     draw_bidirectional_screen(current_forward_map, screen, isForward)
+    #                 isForward = not isForward
+    #     pygame.display.flip()
+    #     clock.tick(60)
+
+def biBaseWithLearning():
+    start_time = time.time()
+    completed = False
+    converged = False
+    current_forward_map = None
+    current_backward_map = None
+    
+    nn = NN(10)
+    nn.model.load_weights('finalSok3')
+    #h = find
+    pass
 
 
 def bidirectionalAutoRun(running, is_completed):
@@ -300,6 +315,12 @@ if __name__ == "__main__":
         default="forward",
         help="forward for forward search and bidirectional for bidirectional search"
     )
+    parser.add_argument(
+        '--with_learning',
+        type=str,
+        default="off",
+        help="learning using the nn.py"
+    )
 
     args = parser.parse_args()
     states = get_data()
@@ -308,29 +329,33 @@ if __name__ == "__main__":
 
 
 
-    pygame.init()
-    screen = pygame.display.set_mode((640, 640))
-    clock = pygame.time.Clock()
-    running = True
-    is_completed = False
+
     if args.forward_or_bidirectional == "forward":
         
-        button = draw_game(only_one_state, screen)
         
         aStar = Astar(only_one_state, "Sokoban")
         aStar.initAstar()
         if args.with_or_without_pygame == 'False':
+            if args.with_learning == "on":
+                print("Forward search with learning not supported for now")
+                sys.exit(1)
             baseRun()
             sys.exit(0)
+        pygame.init()
+        screen = pygame.display.set_mode((640, 640))
+        clock = pygame.time.Clock()
+        running = True
+        is_completed = False
+        button = draw_game(only_one_state, screen)
         if args.iteration_type == "auto":
             autoGUIRun(running, is_completed)
         elif args.iteration_type == "step" :
             stepGUIRun(running, is_completed)
 
     elif args.forward_or_bidirectional == "bidirectional":
-        pygame.font.init()
         
-        button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
+        
+       
         forwardAStar = Astar(only_one_state, "Sokoban")
         backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(only_one_state)
         #print(forwardAStar.game.encodeMap(backward_puzzle))
@@ -338,8 +363,19 @@ if __name__ == "__main__":
         forwardAStar.initAstar()
         backwardAStar.initAstar()
         if args.with_or_without_pygame == 'False':
+            if args.with_learning == "on":
+                biBaseWithLearning()
+                sys.exit(0)
             biBaseRun()
             sys.exit(0)
+
+        pygame.init()
+        pygame.font.init()
+        screen = pygame.display.set_mode((640, 640))
+        clock = pygame.time.Clock()
+        running = True
+        is_completed = False
+        button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
         if args.iteration_type == "auto":
             bidirectionalAutoRun(running, is_completed)
         elif args.iteration_type == "step":
