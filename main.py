@@ -8,6 +8,9 @@ import argparse
 from tqdm import tqdm
 import time
 from nn import NN
+import os
+import numpy as np
+from learn import update_model
 # pygame setup
 # pygame.init()
 
@@ -34,7 +37,7 @@ def baseRun():
                 print("too long")
                 break
             
-            is_solution, next_map = aStar.stepAstar()
+            is_solution, next_map, _ = aStar.stepAstar()
             if is_solution:
                 print("made it")
                 completed = True
@@ -44,12 +47,22 @@ def baseRun():
             #pygame.display.flip()
 
             #clock.tick(60)  # limits FPS to 60
-    draw_game(end_Map, screen)
+    path = aStar.reconstructSuccessfulPath(end_Map)
+    index = len(path) - 1
+    print(len(path))
+    #draw_game(end_Map, screen)
     pygame.display.flip()
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 break
+
+            if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False and index >= 0:
+                mouse = pygame.mouse.get_pos()
+                if button.command(mouse[0], mouse[1]) == True:
+                    draw_game(aStar.game.decodeMap(path[index]), screen)
+                    index -= 1
+
         pygame.display.flip()
         clock.tick(60)
     pygame.quit()
@@ -94,7 +107,7 @@ def stepGUIRun(running, is_completed):
             if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False:
                 mouse = pygame.mouse.get_pos()
                 if button.command(mouse[0], mouse[1]) == True:
-                    is_solution, next_map = aStar.stepAstar()
+                    is_solution, next_map, scoring = aStar.stepAstar()
                     if is_solution:
                         is_completed= True
                         draw_finish_screen(next_map, screen)
@@ -124,6 +137,15 @@ def biBaseRun():
     converged = False
     current_forward_map = None
     current_backward_map = None
+    f_n_f = 0
+    g_n_f = 0
+    f_n_b = 0
+    g_n_b = 0
+    is_front_solution = False
+    is_back_solution = False
+    U = float('inf')
+    front_called = 0
+    back_called = 0
     with tqdm(total=None, desc="Searching ", unit="states") as pbar:
         i = 0
         while not completed:
@@ -131,13 +153,119 @@ def biBaseRun():
             if elapsed_time > 600:
                 print("too long")
                 break
-            is_front_solution, current_forward_map = forwardAStar.stepAstar()
-            is_back_solution, current_backward_map = backwardAStar.stepAstar()
+
+            C = min(forwardAStar.calculatePriority(f_n_f, g_n_f), forwardAStar.calculatePriority(f_n_b, g_n_b))
+            if U <= max(C, f_n_f, f_n_b, g_n_f + g_n_b + 1):
+                completed = True
+
+            if C == forwardAStar.calculatePriority(f_n_f, g_n_f):
+                is_front_solution, current_forward_map,scoring = forwardAStar.stepAstar("MM", updateObject={
+                    "oppositeAstar": backwardAStar.inOpenSet,
+                    "U": U,
+                    "getGScore": backwardAStar.getBestGScore
+                })
+                if is_front_solution:
+                    print("Did not converge front")
+                    completed = True
+                    break
+                priority_score, map_score, U_value = scoring
+                f_n_f = priority_score
+                g_n_f = map_score
+                U = U_value
+                front_called += 1
+
+            else:
+                is_back_solution, current_backward_map, scoring = backwardAStar.stepAstar("MM", updateObject={
+                    "oppositeAstar": forwardAStar.inOpenSet,
+                    "U": U,
+                    "getGScore": forwardAStar.getBestGScore
+                })
+                if is_back_solution:
+                    print("Did not converge back")
+                    completed = True
+                    break
+                priority_score, map_score, U_value = scoring
+                f_n_b = priority_score
+                g_n_b = map_score
+                U = U_value
+                back_called += 1
+            # print(front_called, back_called)
+            # if i > 1000:
+            #     break
+            # print("U value", U)
+            # is_front_solution, current_forward_map, forward_score = forwardAStar.stepAstar("MM")
+            # is_back_solution, current_backward_map, backward_score = backwardAStar.stepAstar("MM")
+            # encoded_forward_map = forwardAStar.game.encodeMap(current_forward_map) 
+            # encoded_backward_map = backwardAStar.game.encodeMap(current_backward_map)
+            # if encoded_backward_map == encoded_forward_map:
+            #     print("made it")
+            #     completed = True
+            #     #draw_finish_screen(current_forward_map, screen)
+            #     continue 
+
+            pbar.update(1) # Increment the counter by 1
+            i += 1
+    backward_path = backwardAStar.reconstructSuccessfulPath(current_backward_map)
+    flipped_path = []
+    for i in reversed(range(len(backward_path))):
+        flipped_path.append(forwardAStar.game.flipGame(forwardAStar.game.decodeMap(backward_path[i])))
+    forward_path = forwardAStar.reconstructSuccessfulPath(current_forward_map)
+    decoded_forward_path = []
+    forward_path.reverse()
+    print(forward_path)
+    combined_path = np.concatenate((forward_path, flipped_path))
+
+
+    print(backwardAStar.game.encodeMap(current_backward_map) == backwardAStar.game.encodeMap(current_forward_map))
+    # print(backwardAStar.game.encodeMap(current_backward_map))
+    pygame.display.flip()
+    path_index = 0
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                break
+
+            if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False and path_index < len(combined_path):
+                mouse = pygame.mouse.get_pos()
+                if button.command(mouse[0], mouse[1]) == True:
+                    draw_game(aStar.game.decodeMap(combined_path[path_index]), screen)
+                    path_index += 1
+
+        pygame.display.flip()
+        clock.tick(60)
+    pygame.quit()
+
+def run():
+
+    start_time = time.time()
+    completed = False
+    converged = False
+    current_forward_map = None
+    current_backward_map = None
+    #h = calculateNextAction(current_forward_map, forwardAStar.game.target, forward_goal, nn)
+    with tqdm(total=None, desc="Searching ", unit="states") as pbar:
+        i = 0
+        print("here", completed)
+        while not completed:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 5000:
+                print("too long")
+                break
+            is_front_solution, current_forward_map, forward_score = forwardAStar.stepAstar("MM_Neural")
+            is_back_solution, current_backward_map, backward_score = backwardAStar.stepAstar("MM_Neural")
             encoded_forward_map = forwardAStar.game.encodeMap(current_forward_map) 
             encoded_backward_map = backwardAStar.game.encodeMap(current_backward_map)
             if encoded_backward_map == encoded_forward_map:
                 print("made it")
                 completed = True
+                ## reconstruct success path
+                forward_path = forwardAStar.reconstructSuccessfulPath(encoded_forward_map)
+                backward_path = backwardAStar.reconstructSuccessfulPath(encoded_backward_map)
+                forward_path.remove(encoded_forward_map)
+                backward_path.remove(encoded_backward_map)
+                final_path = np.concatenate((forward_path, backward_path))
+                X_train, Y_train = forwardAStar.create_one_hot(final_path, forwardAStar.game.target, forwardAStar.game.goal_map)
+                # h_matrix = c
                 # draw_finish_screen(current_forward_map, screen)
                 # continue 
             elif is_front_solution == True or is_back_solution == True:
@@ -148,36 +276,26 @@ def biBaseRun():
                 break
             pbar.update(1) # Increment the counter by 1
             i += 1
-    print(current_forward_map)
-    # draw_game(current_forward_map, screen)
-    # pygame.display.flip()
-    # isForward = True
-    # while True:
-    #     for event in pygame.event.get():
-    #         if event.type == pygame.QUIT:
-    #             break
-    #         if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False:
-    #             mouse = pygame.mouse.get_pos()
-    #             if flip_button.command(mouse[0], mouse[1]) == True:
-    #                 if isForward:
-    #                     draw_bidirectional_screen(current_backward_map, screen, isForward)
-    #                 else:
-    #                     draw_bidirectional_screen(current_forward_map, screen, isForward)
-    #                 isForward = not isForward
-    #     pygame.display.flip()
-    #     clock.tick(60)
-
-def biBaseWithLearning():
-    start_time = time.time()
-    completed = False
-    converged = False
-    current_forward_map = None
-    current_backward_map = None
     
+def biBaseWithLearning(games):
+
     nn = NN(10)
-    nn.model.load_weights('finalSok3')
+    forwardAStar.nn = nn
+    backwardAStar.nn = nn
+    if "finalSok3" in os.listdir("."):
+        nn.model.load_weights('finalSok3')
+        ### NOTES: while training current puzzle, call neural network with predict. when we terminate we train/update neural network based on successful set
+    for i in range(0,1):
+        X_train, Y_train, h_matrix, path_cost = run()
+        update_model(x_train=X_train, y_train=Y_train, h_matrix=h_matrix, path_cost=path_cost, nn=nn)
+        break
+        forwardAStar = Astar(states[i], "Sokoban")
+        backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(states[i])
+        backwardAStar = Astar(backward_puzzle, "Sokoban", True)
+    
     #h = find
     pass
+
 
 
 def bidirectionalAutoRun(running, is_completed):
@@ -322,8 +440,15 @@ if __name__ == "__main__":
         help="learning using the nn.py"
     )
 
+    parser.add_argument(
+        "--with_dummy_data",
+        type=str,
+        default="No",
+        help="If Yes, then get very simple puzzles from test_box.txt. Created in order to make sure convergence during intial development on learning"
+    )
+
     args = parser.parse_args()
-    states = get_data()
+    states = get_data(args.with_dummy_data == "Yes")
     only_one_state = states[0]
 
 
@@ -332,7 +457,12 @@ if __name__ == "__main__":
 
     if args.forward_or_bidirectional == "forward":
         
-        
+        pygame.init()
+        screen = pygame.display.set_mode((640, 640))
+        clock = pygame.time.Clock()
+        running = True
+        is_completed = False
+        button = draw_game(only_one_state, screen)
         aStar = Astar(only_one_state, "Sokoban")
         aStar.initAstar()
         if args.with_or_without_pygame == 'False':
@@ -341,12 +471,8 @@ if __name__ == "__main__":
                 sys.exit(1)
             baseRun()
             sys.exit(0)
-        pygame.init()
-        screen = pygame.display.set_mode((640, 640))
-        clock = pygame.time.Clock()
-        running = True
-        is_completed = False
-        button = draw_game(only_one_state, screen)
+        
+        
         if args.iteration_type == "auto":
             autoGUIRun(running, is_completed)
         elif args.iteration_type == "step" :
@@ -355,7 +481,13 @@ if __name__ == "__main__":
     elif args.forward_or_bidirectional == "bidirectional":
         
         
-       
+        pygame.init()
+        pygame.font.init()
+        screen = pygame.display.set_mode((640, 640))
+        clock = pygame.time.Clock()
+        running = True
+        is_completed = False
+        button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
         forwardAStar = Astar(only_one_state, "Sokoban")
         backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(only_one_state)
         #print(forwardAStar.game.encodeMap(backward_puzzle))
@@ -364,18 +496,13 @@ if __name__ == "__main__":
         backwardAStar.initAstar()
         if args.with_or_without_pygame == 'False':
             if args.with_learning == "on":
-                biBaseWithLearning()
+                biBaseWithLearning(states)
+
                 sys.exit(0)
             biBaseRun()
             sys.exit(0)
 
-        pygame.init()
-        pygame.font.init()
-        screen = pygame.display.set_mode((640, 640))
-        clock = pygame.time.Clock()
-        running = True
-        is_completed = False
-        button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
+
         if args.iteration_type == "auto":
             bidirectionalAutoRun(running, is_completed)
         elif args.iteration_type == "step":

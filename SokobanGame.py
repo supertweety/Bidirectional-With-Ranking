@@ -9,6 +9,7 @@ class SokobanGame:
         #     self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target), self.PullUp(self.target), self.PullDown(self.target), self.PullLeft(self.target), self.PullRight(self.target)]
         # else:
         #     self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target)]
+        self.goal_map = self.initializeBackwardPuzzle(puzzle)
         self.action_map = {
             (-1, 0): self.Up(self.target, isBackward),      # Up
             (1, 0): self.Down(self.target, isBackward),    # Down
@@ -38,6 +39,19 @@ class SokobanGame:
                     new_copy[row][col] = 2
                 elif new_copy[row][col] == 2:
                     new_copy[row][col] = 4
+        return new_copy
+    
+    # ## This is not on initialization of the backward search.
+    def flipGame(self, board):
+        new_copy = copy.deepcopy(board)
+
+        for row in range(len(board)):
+            for col in range(len(board[0])):
+                if new_copy[row][col] == 2:
+                    new_copy[row][col] = 1
+        for target in self.target:
+            if  new_copy[target[0]][target[1]] != 3 and new_copy[target[0]][target[1]] != 4:
+                new_copy[target[0]][target[1]] = 2
         return new_copy
     
     def hasDeadlock(self, board):

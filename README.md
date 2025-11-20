@@ -23,13 +23,13 @@ This project requires **Python 3.x** and uses **Conda** for environment manageme
 
 **Installation Steps:**
 
-1.  **Preferred Method (Using `environment.yml`):**
+1.  **Preferred Method (Using `environment.yaml`):**
 
     If you have the necessary Conda channels configured (like `conda-forge`), use the YAML file to create the environment:
 
     ```bash
     # Create and activate the environment using the YAML file
-    conda env create -f environment.yml
+    conda env create -f environment.yaml
     conda activate optimize-to-rank
     ```
 
@@ -81,7 +81,7 @@ Each cell in the input grid file corresponds to the following elements:
 | **`1`** | Floor | Moveable space where the player can walk. |
 | **`2`** | Target Block Locations | Goal spots where the blocks must be pushed. |
 | **`3`** | Player Location | The starting position of the agent. |
-
+| **`4`** | Block Locations | Blocks that are to be pushed. |
 ### 📦 Block Locations
 
 * **`4`**: **Where the Blocks Currently Are** (This value represents a movable block or box).

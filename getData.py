@@ -1,9 +1,12 @@
 import numpy as np
 
-def get_data():
+def get_data(useDummyData=False):
     all_states=[]
-
-    f=open("states10_3box.txt", "r")
+    f = None
+    if useDummyData:
+        f=open("test_box.txt", "r")
+    else:
+        f=open("states10_3box.txt", "r")
 
     array_s=[]
     array_a=[]
@@ -20,7 +23,6 @@ def get_data():
             all_states.append(temp)
             duplicate.append(array_s[i])
             index.append(i)
-
         i+=1
         break
 

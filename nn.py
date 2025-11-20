@@ -10,6 +10,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import  Conv2D, Dense, Flatten, Input, concatenate, Lambda, Softmax, Activation, GlobalAveragePooling2D
 from tensorflow.keras.optimizers import Adam
 
+
 class AddPositionalEncoding(Layer):
     """
     Injects positional encoding signal described in section 3.5 of the original

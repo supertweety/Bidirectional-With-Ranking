@@ -1,4 +1,4 @@
-name: andreas-search
+name: optimize-to-rank
 channels:
   - defaults
   - conda-forge
@@ -7,3 +7,4 @@ dependencies:
   - pygame
   - numpy
   - tqdm
+  - tensorflow-cpu
