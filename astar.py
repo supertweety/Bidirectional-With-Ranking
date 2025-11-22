@@ -55,16 +55,10 @@ class Astar():
             (goal reached or heap is empty).
         """
         if self.heap.length() == 0:
-
             return (False, self.game.puzzle, 0)
-        notVisited = False
-        #while not notVisited:
+
         ma = self.heap.getMin()
-            # if self.game.encodeMap(ma[1][1]) not in self.visited:
-            #         if self.game.hasDeadlock(ma[1][1]):
-            #             self.visited.add(self.game.encodeMap(ma[1][1]))
-            #             continue
-            #         notVisited = True
+
         current_map_score = ma[0][0]
         current_priority_score = ma[0][1]
 
@@ -72,8 +66,7 @@ class Astar():
         encodedMap = self.game.encodeMap(map_location_tuple[1])
         self.visited.add(encodedMap)
         current_loc = map_location_tuple[0]
-        #print(self.game.encodeMap(ma[1]))
-        multiple_maps_for_backwards = []
+
         current_puzzle_encoded = self.game.encodeMap(self.game.puzzle)
 
         # print(self.heap.length())
@@ -94,13 +87,15 @@ class Astar():
         #print(current_loc) 
         directions = self.game.availableStates(current_loc)
         #print(ma[1])
-        current_rank_heap = []
+        # current_rank_heap = []
         push_count = 0
         for direction_and_movement in directions:
             direction = direction_and_movement[0]
             new_map = self.game.move(current_loc, direction_and_movement)
-            if new_map is None or self.game.hasDeadlock(new_map) or self.game.encodeMap(new_map) in self.visited:
+            # print(self.game.hasDeadlock(new_map))
+            if new_map is None  or self.game.encodeMap(new_map) in self.visited:
                 ## we dont watn cycles
+                print("here")
                 continue
             # if self.isBackward:
             #     print(self.game.encodeMap(new_map))
@@ -125,7 +120,7 @@ class Astar():
                         gScore = self.best_gscore[self.game.encodeMap(new_map)]
                     else:
                         gScore = current_map_score + 1
-                    aStarScore = self.calculatePriority(score, gScore)
+                    aStarScore = gScore + score
                 case "Neural":
                     score = self.calculateNextAction(new_map, self.game.target, self.game.goal_map, self.nn)
                     aStarScore = current_map_score + score+ 1
@@ -136,13 +131,13 @@ class Astar():
                         gScore = self.best_gscore[self.game.encodeMap(new_map)]
                     else:
                         gScore = current_map_score + 1
-                    aStarScore = self.calculatePriority(score, gScore)
+                    aStarScore = gScore + score
             
             if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural":
                 if self.heap.contains(self.game.encodeMap(new_map)) == False:
                     self.parentMap[self.game.encodeMap(new_map)] = encodedMap
                     self.best_gscore[self.game.encodeMap(new_map)] = current_map_score + 1
-                    heapq.heappush(current_rank_heap,[aStarScore, push_count, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map)])
+                    self.heap.insert(current_map_score + 1, aStarScore, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map))
                 elif self.game.encodeMap(new_map) in self.best_gscore and current_map_score + 1 < self.best_gscore[self.game.encodeMap(new_map)]:
                     self.best_gscore[self.game.encodeMap(new_map)] = current_map_score + 1
                     self.parentMap[self.game.encodeMap(new_map)] = encodedMap
@@ -155,9 +150,12 @@ class Astar():
                 if (self.heap.contains(self.game.encodeMap(new_map)) == True or self.game.encodeMap(new_map) in self.visited):
                     if self.heap.contains(self.game.encodeMap(new_map)) == True:
                         self.heap.remove(self.game.encodeMap(new_map))
+                    else:
+                        self.visited.remove(self.game.encodeMap(new_map))
                 self.best_gscore[self.game.encodeMap(new_map)] = current_map_score + 1
                 self.parentMap[self.game.encodeMap(new_map)] = encodedMap
-                heapq.heappush(current_rank_heap,[aStarScore, push_count, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map)])
+                self.heap.insert(current_map_score + 1, aStarScore, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map))
+                # heapq.heappush(current_rank_heap,[aStarScore, push_count, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map)])
                 # print("made it", updateObject["oppositeAstar"](self.game.encodeMap(new_map)))
                 if updateObject["oppositeAstar"](self.game.encodeMap(new_map)) != (None, None):
                     _, opposite_game_gscore = updateObject["oppositeAstar"](self.game.encodeMap(new_map))
@@ -181,11 +179,6 @@ class Astar():
             push_count += 1
         self.iteration += 1
 
-        while len(current_rank_heap) > 0:
-            top_element = heapq.heappop(current_rank_heap)
-            top_ = top_element[2]
-            self.heap.insert(current_map_score + 1, top_element[0], top_)
-
         #print(encodedMap in self.parentMap)
         #self.parentMap[self.game.encodeMap(self.heap.peek()[1])] = encodedMap
         #print(multiple_maps_for_backwards)
@@ -197,8 +190,23 @@ class Astar():
             return (False, self.game.puzzle, (current_priority_score, current_map_score, updateObject["U"]))
     #(False, self.heap.peek()[1])
 
-    def calculatePriority(self, f_n, g_n):
-        return min(2*g_n, g_n + f_n + 1)
+    def calculatePriority(self) -> int:
+        minimum_priority = float('inf')
+
+        for f_value, g_value, counter,  element in self.heap.elements:
+            current_priority = max(2*g_value, f_value)
+            minimum_priority = min(minimum_priority, current_priority)
+            pass
+        return minimum_priority
+    
+    def calculateOpenSetMaxorMinValue(self, value_type: Literal["g_value", "f_value"]="f_value" ,cutoff: Literal["max", "min"]="min"):
+        value = float('inf')
+        for f_value, g_value, counter,  element in self.heap.elements:
+            current_value = f_value if value_type == "f_value" else g_value
+            cutoff_fn = min if cutoff == "min" else max
+            value = cutoff_fn(value, current_value)
+        return value
+
     
     def checkGameInHeap(self, encoded_current_game):
         flipped_game = self.game.flipGame(self.game.decodeMap(encoded_current_game))
@@ -302,28 +310,33 @@ class Astar():
 
 class PriorityQ:
     def __init__(self, game):
-        self.elements = OrderedDict()
+        self.elements = []
+        self.lookupDict = {}
         self.game: SokobanGame = game
         self.counter = 0
-    def insert(self,value, priority, element): 
-        self.elements[self.game.encodeMap(element[1])] = (value,priority, element[0])
+    def insert(self,value: int, priority: int, element): 
+        heapq.heappush(self.elements, (priority, value, self.counter,  element))
+        self.lookupDict[self.game.encodeMap(element[1])] = value
         #self.elements.append([(value,priority), element])
         #heapq.heappush(self.elements, [value, self.counter, element])
         self.counter += 1
-    def remove(self,map):
-        self.elements.pop(map)
+    def remove(self,encoded_map):
+        self.elements.remove(encoded_map)
+        self.lookupDict.pop(encoded_map, None)
 
-    def contains(self, map):
-        if map in self.elements:
+    def contains(self, encoded_map):
+        if encoded_map in self.lookupDict:
             return True
             
         return False
     def getCurrentGScore(self, encoded_map):
-        return self.elements[encoded_map][0]
+        return self.lookupDict[encoded_map]
     def getMin(self):
-        popped_item = self.elements.popitem()
-        #print(popped_item)
-        restructured = ((popped_item[1][0], popped_item[1][1]), (popped_item[1][2], self.game.decodeMap(popped_item[0])))
+        popped_item = heapq.heappop(self.elements)
+        priority, value, _,  map_tuple = popped_item
+        # print(popped_item)
+        ## returns ((map_score, priority_score), (direction, decoded_map))
+        restructured = ((value, priority), (map_tuple[0], map_tuple[1]))
         return restructured
         #return heapq.heappop(self.elements)[2]
     def length(self):

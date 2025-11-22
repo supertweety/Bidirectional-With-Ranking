@@ -24,7 +24,9 @@ def get_data(useDummyData=False):
             duplicate.append(array_s[i])
             index.append(i)
         i+=1
-        break
+        if i > 4:
+            break
+        # break
 
     return all_states
     f.close()

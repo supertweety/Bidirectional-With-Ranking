@@ -131,21 +131,31 @@ def stepGUIRun(running, is_completed):
 
 ### bidirectional
 
+def biBaseMM(game_states):
+    # print(game_states)
+    i = 0
+    global forwardAStar, backwardAStar
+    for state in game_states:
+        biBaseRun()
+        forwardAStar = Astar(state, "Sokoban")
+        backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(state)
+        backwardAStar = Astar(backward_puzzle, "Sokoban", True)
+        forwardAStar.initAstar()
+        backwardAStar.initAstar()
+        if i > 4:
+            break
+
 def biBaseRun():
     start_time = time.time()
     completed = False
     converged = False
     current_forward_map = None
     current_backward_map = None
-    f_n_f = 0
-    g_n_f = 0
-    f_n_b = 0
-    g_n_b = 0
+    front_called = 0
+    back_called = 0
     is_front_solution = False
     is_back_solution = False
     U = float('inf')
-    front_called = 0
-    back_called = 0
     with tqdm(total=None, desc="Searching ", unit="states") as pbar:
         i = 0
         while not completed:
@@ -153,13 +163,14 @@ def biBaseRun():
             if elapsed_time > 600:
                 print("too long")
                 break
-
-            C = min(forwardAStar.calculatePriority(f_n_f, g_n_f), forwardAStar.calculatePriority(f_n_b, g_n_b))
-            if U <= max(C, f_n_f, f_n_b, g_n_f + g_n_b + 1):
+            # print(forwardAStar.calculatePriority(), backwardAStar.calculatePriority())
+            C = min(forwardAStar.calculatePriority(), backwardAStar.calculatePriority())
+            if U <= max(C,forwardAStar.calculateOpenSetMaxorMinValue("f_value", "min"),backwardAStar.calculateOpenSetMaxorMinValue("f_value", "min"), forwardAStar.calculateOpenSetMaxorMinValue("g_value", "min") + backwardAStar.calculateOpenSetMaxorMinValue("g_value", "min") + 1):
                 completed = True
+                print("CONVERGED")
 
-            if C == forwardAStar.calculatePriority(f_n_f, g_n_f):
-                is_front_solution, current_forward_map,scoring = forwardAStar.stepAstar("MM", updateObject={
+            if C == forwardAStar.calculatePriority():
+                is_front_solution, current_forward_map, scoring = forwardAStar.stepAstar("MM", updateObject={
                     "oppositeAstar": backwardAStar.inOpenSet,
                     "U": U,
                     "getGScore": backwardAStar.getBestGScore
@@ -168,9 +179,7 @@ def biBaseRun():
                     print("Did not converge front")
                     completed = True
                     break
-                priority_score, map_score, U_value = scoring
-                f_n_f = priority_score
-                g_n_f = map_score
+                _, __, U_value = scoring
                 U = U_value
                 front_called += 1
 
@@ -184,9 +193,7 @@ def biBaseRun():
                     print("Did not converge back")
                     completed = True
                     break
-                priority_score, map_score, U_value = scoring
-                f_n_b = priority_score
-                g_n_b = map_score
+                _, __, U_value = scoring
                 U = U_value
                 back_called += 1
             # print(front_called, back_called)
@@ -205,6 +212,7 @@ def biBaseRun():
 
             pbar.update(1) # Increment the counter by 1
             i += 1
+
     backward_path = backwardAStar.reconstructSuccessfulPath(current_backward_map)
     flipped_path = []
     for i in reversed(range(len(backward_path))):
@@ -235,7 +243,7 @@ def biBaseRun():
         clock.tick(60)
     pygame.quit()
 
-def run():
+def neural_run():
 
     start_time = time.time()
     completed = False
@@ -245,7 +253,7 @@ def run():
     #h = calculateNextAction(current_forward_map, forwardAStar.game.target, forward_goal, nn)
     with tqdm(total=None, desc="Searching ", unit="states") as pbar:
         i = 0
-        print("here", completed)
+        # print("here", completed)
         while not completed:
             elapsed_time = time.time() - start_time
             if elapsed_time > 5000:
@@ -286,7 +294,7 @@ def biBaseWithLearning(games):
         nn.model.load_weights('finalSok3')
         ### NOTES: while training current puzzle, call neural network with predict. when we terminate we train/update neural network based on successful set
     for i in range(0,1):
-        X_train, Y_train, h_matrix, path_cost = run()
+        X_train, Y_train, h_matrix, path_cost = neural_run()
         update_model(x_train=X_train, y_train=Y_train, h_matrix=h_matrix, path_cost=path_cost, nn=nn)
         break
         forwardAStar = Astar(states[i], "Sokoban")
@@ -499,7 +507,7 @@ if __name__ == "__main__":
                 biBaseWithLearning(states)
 
                 sys.exit(0)
-            biBaseRun()
+            biBaseMM(states)
             sys.exit(0)
 
 
