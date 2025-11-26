@@ -10,6 +10,7 @@ import time
 from nn import NN
 import os
 import numpy as np
+from SokobanGame import SokobanGame
 from learn import update_model
 # pygame setup
 # pygame.init()
@@ -47,6 +48,7 @@ def baseRun():
             #pygame.display.flip()
 
             #clock.tick(60)  # limits FPS to 60
+    print("end player area", np.where(end_Map == 3))
     path = aStar.reconstructSuccessfulPath(end_Map)
     index = len(path) - 1
     print(len(path))
@@ -145,7 +147,62 @@ def biBaseMM(game_states):
         if i > 4:
             break
 
+
 def biBaseRun():
+    start_time = time.time()
+    completed = False
+    is_front_solution = False
+    is_backward_solution = False
+    with tqdm(total=None, desc="Searching ", unit="states") as pbar:
+        while not completed:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 600:
+                print("too long")
+                break
+            is_front_solution, current_forward_map, scoring = forwardAStar.stepAstar()
+            is_backward_solution, current_backward_map, scoring_ = backwardAStar.stepAstar()
+            # print(is_front_solution, is_backward_solution)
+            ### check if visited in forward is in backward visited
+            if len(forwardAStar.visited.intersection(backwardAStar.visited)) > 0 or len(forwardAStar.heap.getSet(forwardAStar.game.encodeMap).intersection(backwardAStar.heap.getSet(backwardAStar.game.encodeMap))) > 0:
+                print("Converged")
+
+
+            if is_front_solution == True or is_backward_solution == True:
+                print("Did not Converge")
+                completed = True
+                converged = True
+                # draw_finish_screen(current_backward_map, screen)
+                break
+            pbar.update(1)
+    # print("end player area", np.where(end_Map == 3))
+    current_doneAStar = forwardAStar if is_front_solution else backwardAStar
+    path = current_doneAStar.reconstructSuccessfulPath(current_forward_map)
+    if is_backward_solution:
+        flipped_path = []
+        for i in reversed(range(len(path))):
+            flipped_path.append(forwardAStar.game.flipGame(forwardAStar.game.decodeMap(path[i])))
+        path = flipped_path
+    index = len(path) - 1
+    print(len(path))
+    #draw_game(end_Map, screen)
+    pygame.display.flip()
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                break
+
+            if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False and index >= 0:
+                mouse = pygame.mouse.get_pos()
+                if button.command(mouse[0], mouse[1]) == True:
+                    draw_game(current_doneAStar.game.decodeMap(path[index]), screen)
+                    index -= 1
+
+        pygame.display.flip()
+        clock.tick(60)
+    pygame.quit()
+
+
+def biBaseRunGuarenteed():
     start_time = time.time()
     completed = False
     converged = False
@@ -165,6 +222,7 @@ def biBaseRun():
                 break
             # print(forwardAStar.calculatePriority(), backwardAStar.calculatePriority())
             C = min(forwardAStar.calculatePriority(), backwardAStar.calculatePriority())
+            
             if U <= max(C,forwardAStar.calculateOpenSetMaxorMinValue("f_value", "min"),backwardAStar.calculateOpenSetMaxorMinValue("f_value", "min"), forwardAStar.calculateOpenSetMaxorMinValue("g_value", "min") + backwardAStar.calculateOpenSetMaxorMinValue("g_value", "min") + 1):
                 completed = True
                 print("CONVERGED")
@@ -196,7 +254,7 @@ def biBaseRun():
                 _, __, U_value = scoring
                 U = U_value
                 back_called += 1
-            # print(front_called, back_called)
+            
             # if i > 1000:
             #     break
             # print("U value", U)
@@ -284,6 +342,9 @@ def neural_run():
                 break
             pbar.update(1) # Increment the counter by 1
             i += 1
+
+def baseWithLearning():
+    pass
     
 def biBaseWithLearning(games):
 
@@ -470,12 +531,14 @@ if __name__ == "__main__":
         clock = pygame.time.Clock()
         running = True
         is_completed = False
+
         button = draw_game(only_one_state, screen)
-        aStar = Astar(only_one_state, "Sokoban")
+        aStar = Astar(SokobanGame.initializeBackwardPuzzle(only_one_state), "Sokoban", True)
         aStar.initAstar()
         if args.with_or_without_pygame == 'False':
             if args.with_learning == "on":
                 print("Forward search with learning not supported for now")
+                baseWithLearning()
                 sys.exit(1)
             baseRun()
             sys.exit(0)

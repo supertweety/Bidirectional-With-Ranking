@@ -205,7 +205,7 @@ class AttentionAugmentation2D(Layer):
         return split
 
     def relative_logits(self, q):
-        print("here")
+        # print("here")
         shape = K.shape(q)
         # [batch, num_heads, H, W, depth_v]
         shape = [shape[i] for i in range(5)]

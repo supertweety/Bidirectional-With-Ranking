@@ -10,6 +10,7 @@ class SokobanGame:
         # else:
         #     self.actions = [self.Up(self.target), self.Down(self.target), self.Left(self.target),self.Right(self.target)]
         self.goal_map = self.initializeBackwardPuzzle(puzzle)
+        # print(self.encodeMap(self.goal_map))
         self.action_map = {
             (-1, 0): self.Up(self.target, isBackward),      # Up
             (1, 0): self.Down(self.target, isBackward),    # Down
@@ -17,6 +18,14 @@ class SokobanGame:
             (0, 1): self.Right(self.target, isBackward),   # Right (Note: Changed from (0, -1) in your original logic)
         }
         self.isBackward = isBackward
+        if self.isBackward == False:
+            player_loc = np.where(self.goal_map == 3)
+            self.goal_map[player_loc[0][0]][player_loc[1][0]] = 1
+            self.goal_map[7][5] = 3
+        else:
+            player_loc = np.where(self.goal_map == 3)
+            self.goal_map[player_loc[0][0]][player_loc[1][0]] = 1
+            self.goal_map[3][1] = 3
         # If backward search, add the 'Pull' actions to the map
         if isBackward:
             # Note: Assuming Pull actions use the same directional tuples for their 'move' logic

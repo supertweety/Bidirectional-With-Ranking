@@ -95,7 +95,7 @@ class Astar():
             # print(self.game.hasDeadlock(new_map))
             if new_map is None  or self.game.encodeMap(new_map) in self.visited:
                 ## we dont watn cycles
-                print("here")
+                # print("here")
                 continue
             # if self.isBackward:
             #     print(self.game.encodeMap(new_map))
@@ -116,10 +116,10 @@ class Astar():
                 case "MM":
                     score = self.game.evaluateBoard(new_map)
                     gScore = 0
-                    if self.game.encodeMap(new_map) in self.best_gscore:
-                        gScore = self.best_gscore[self.game.encodeMap(new_map)]
-                    else:
-                        gScore = current_map_score + 1
+                    # if self.game.encodeMap(new_map) in self.best_gscore:
+                    #     gScore = self.best_gscore[self.game.encodeMap(new_map)]
+                    # else:
+                    gScore = current_map_score + 1
                     aStarScore = gScore + score
                 case "Neural":
                     score = self.calculateNextAction(new_map, self.game.target, self.game.goal_map, self.nn)
@@ -193,10 +193,13 @@ class Astar():
     def calculatePriority(self) -> int:
         minimum_priority = float('inf')
 
-        for f_value, g_value, counter,  element in self.heap.elements:
+        for f_value, g_value, _,  __ in self.heap.elements:
+            # if self.game.isBackward == True:
+                # print("g value", g_value)
             current_priority = max(2*g_value, f_value)
             minimum_priority = min(minimum_priority, current_priority)
-            pass
+        # print()
+        # print()
         return minimum_priority
     
     def calculateOpenSetMaxorMinValue(self, value_type: Literal["g_value", "f_value"]="f_value" ,cutoff: Literal["max", "min"]="min"):
@@ -209,9 +212,12 @@ class Astar():
 
     
     def checkGameInHeap(self, encoded_current_game):
+        # print(encoded_current_game)
         flipped_game = self.game.flipGame(self.game.decodeMap(encoded_current_game))
 
         encoded_front_game = self.game.encodeMap(flipped_game)
+        # print(encoded_front_game)
+        # print()
         for encoded_game in self.heap.elements:
             # print(encoded_front_game)
             # print(encoded_game)
@@ -346,6 +352,13 @@ class PriorityQ:
                 raise IndexError("peek from empty priority queue")
             return self.elements[0][1]
             #return self.elements[0][2]
+    def getSet(self, encode):
+        new_set = set()
+        for priority, value, counter, element in self.elements:
+            new_set.add(encode(element[1]))
+
+        return new_set
+
     def __str__(self):
         """
         Provides a string representation of the queue, showing elements 
