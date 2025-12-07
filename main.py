@@ -11,7 +11,7 @@ from nn import NN
 import os
 import numpy as np
 from SokobanGame import SokobanGame
-from learn import update_model
+import torch
 # pygame setup
 # pygame.init()
 
@@ -51,7 +51,6 @@ def baseRun():
     print("end player area", np.where(end_Map == 3))
     path = aStar.reconstructSuccessfulPath(end_Map)
     index = len(path) - 1
-    print(len(path))
     #draw_game(end_Map, screen)
     pygame.display.flip()
     while True:
@@ -76,13 +75,13 @@ def autoGUIRun(running, is_completed):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-        is_solution, next_map = aStar.stepAstar()
+        is_solution, next_map, _ = aStar.stepAstar()
         if is_solution:
             is_completed= True
             draw_finish_screen(next_map, screen)
             continue
         draw_game(next_map, screen)
-        pygame.time.delay(10)
+        pygame.time.delay(500)
 
     # next_map = aStar.stepAstar()
     # draw_game(next_map)
@@ -147,6 +146,82 @@ def biBaseMM(game_states):
         if i > 4:
             break
 
+def biBaseFF(states, with_noise):
+    start_time = time.time()
+    completed = False
+    is_front_solution = False
+    is_backward_solution = False
+    with tqdm(total=None, desc="Searching ", unit="states") as pbar:
+        while not completed:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > 600:
+                print("too long")
+                break
+            bottom_openset_front = backwardAStar.heap.peek()
+            is_front_solution, current_forward_map, scoring = forwardAStar.stepAstar("FF", updateObject={
+                "oppositeAstar": bottom_openset_front,
+                "opposite_visited": backwardAStar.visited,
+                "with_noise": with_noise
+            })
+            top_openset_front = forwardAStar.heap.peek()
+            is_backward_solution, current_backward_map, scoring_ = backwardAStar.stepAstar("FF", updateObject={
+                "oppositeAstar": top_openset_front,
+                "opposite_visited": forwardAStar.visited,
+                "with_noise": with_noise
+            })
+            if scoring == -1 or scoring_ == -1:
+                print("Converged")
+                completed = True 
+                break
+            # is_backward_solution, current_backward_map, scoring_ = backwardAStar.stepAstar()
+            # 
+            # if len(forwardAStar.heap.getSet(forwardAStar.game.encodeMap).intersection(backwardAStar.heap.getSet(backwardAStar.game.encodeMap))) > 0:
+            #     print("Converged")
+            #     completed = True
+            if is_front_solution == True or is_backward_solution == True:
+                print("Did not Converge")
+                completed = True
+                converged = True
+                # draw_finish_screen(current_backward_map, screen)
+                break
+            pbar.update(1)
+    # print("end player area", np.where(end_Map == 3))
+    # print(is_backward_solution, is_front_solution)
+    current_doneAStar = forwardAStar if is_front_solution else backwardAStar
+    current_end_map = current_forward_map if is_front_solution == True else current_backward_map
+    path = current_doneAStar.reconstructSuccessfulPath(current_end_map)
+    other_star = forwardAStar if not is_front_solution else backwardAStar
+    main_path = other_star.reconstructSuccessfulPath(other_star.game.flipGame(current_end_map))
+    if is_front_solution:
+        ## main path is backward
+        new_path = path[::-1]
+        for decodeMap in main_path[::-1][1:]:
+            new_path.append(decodeMap)
+        path = new_path
+    else: 
+        ## main path is forward
+        new_path = main_path[::-1]
+        for decodeMap in path[1:]:
+            new_path.append(other_star.game.encodeMap(other_star.game.flipGame(other_star.game.decodeMap(decodeMap))))
+        path = new_path
+    ## one end of the path 
+    index = 0
+    #draw_game(end_Map, screen)
+    pygame.display.flip()
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                break
+
+            if event.type == pygame.MOUSEBUTTONDOWN and is_completed == False and index <= len(path) - 1:
+                mouse = pygame.mouse.get_pos()
+                if button.command(mouse[0], mouse[1]) == True:
+                    draw_game(backwardAStar.game.decodeMap(path[index]), screen)
+                    index += 1
+
+        pygame.display.flip()
+        clock.tick(60)
+    pygame.quit()
 
 def biBaseRun():
     start_time = time.time()
@@ -301,7 +376,7 @@ def biBaseRunGuarenteed():
         clock.tick(60)
     pygame.quit()
 
-def neural_run():
+def bi_neural_run():
 
     start_time = time.time()
     completed = False
@@ -331,6 +406,7 @@ def neural_run():
                 backward_path.remove(encoded_backward_map)
                 final_path = np.concatenate((forward_path, backward_path))
                 X_train, Y_train = forwardAStar.create_one_hot(final_path, forwardAStar.game.target, forwardAStar.game.goal_map)
+                
                 # h_matrix = c
                 # draw_finish_screen(current_forward_map, screen)
                 # continue 
@@ -343,8 +419,52 @@ def neural_run():
             pbar.update(1) # Increment the counter by 1
             i += 1
 
-def baseWithLearning():
-    pass
+def neural_run():
+    start_time = time.time()
+    completed = False
+    end_Map = None
+    with tqdm(total=None, desc="Searching ", unit="states") as pbar:
+        i = 0
+        while not completed:
+            elapsed_time = time.time() - start_time
+            # if elapsed_time > 600:
+            #     print("too long")
+            #     break
+            
+            is_solution, next_map, _ = aStar.stepAstar("Neural")
+            if is_solution:
+                print("made it")
+                completed = True
+                end_Map = next_map
+            pbar.update(1) # Increment the counter by 1
+            i += 1
+            #pygame.display.flip()
+
+            #clock.tick(60)  # limits FPS to 60
+    path = aStar.reconstructSuccessfulPath(end_Map)
+    nn_costs, optimal_costs = aStar.loss(path)
+    return nn_costs, optimal_costs 
+    # loss = criterion(outputs, labels)
+    # X_train, Y_train = forwardAStar.create_one_hot(path, aStar.game.target, aStar.game.goal_map)
+
+
+
+def baseWithLearning(states):
+    nn = NN(10)
+    criterion, optimizer = nn.initialize_cr_opt()
+    if "finalSok3" in os.listdir("."):
+        nn.model.load_weights('finalSok3')
+    aStar.nn = nn
+    for i in range(0,1):
+        with torch.no_grad():
+            nn_costs, optimal_costs = neural_run()
+            loss = criterion(nn_costs, optimal_costs)
+            loss.backward()
+            optimizer.step()
+        break
+        forwardAStar = Astar(states[i], "Sokoban")
+        backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(states[i])
+        backwardAStar = Astar(backward_puzzle, "Sokoban", True)
     
 def biBaseWithLearning(games):
 
@@ -355,7 +475,7 @@ def biBaseWithLearning(games):
         nn.model.load_weights('finalSok3')
         ### NOTES: while training current puzzle, call neural network with predict. when we terminate we train/update neural network based on successful set
     for i in range(0,1):
-        X_train, Y_train, h_matrix, path_cost = neural_run()
+        X_train, Y_train, h_matrix, path_cost = bi_neural_run()
         update_model(x_train=X_train, y_train=Y_train, h_matrix=h_matrix, path_cost=path_cost, nn=nn)
         break
         forwardAStar = Astar(states[i], "Sokoban")
@@ -506,7 +626,20 @@ if __name__ == "__main__":
         '--with_learning',
         type=str,
         default="off",
-        help="learning using the nn.py"
+        help="on for learning using the nn.py, otherwise off for standard aStar"
+    )
+    parser.add_argument(
+        "--front_to_front",
+        type=str,
+        default="no",
+        help="if yes then to front to front learning. otherwise to meet in the middle learning"
+    )
+
+    parser.add_argument(
+        "--with_noise",
+        type=str,
+        default="off",
+        help="if on, then add random sample from normal distribution to score for front to front (only)"
     )
 
     parser.add_argument(
@@ -531,14 +664,13 @@ if __name__ == "__main__":
         clock = pygame.time.Clock()
         running = True
         is_completed = False
-
-        button = draw_game(only_one_state, screen)
-        aStar = Astar(SokobanGame.initializeBackwardPuzzle(only_one_state), "Sokoban", True)
+        backward_game = SokobanGame.initializeBackwardPuzzle(only_one_state)
+        button = draw_game(backward_game, screen)
+        aStar = Astar(backward_game, "Sokoban", True)
         aStar.initAstar()
         if args.with_or_without_pygame == 'False':
             if args.with_learning == "on":
-                print("Forward search with learning not supported for now")
-                baseWithLearning()
+                baseWithLearning(states)
                 sys.exit(1)
             baseRun()
             sys.exit(0)
@@ -569,6 +701,9 @@ if __name__ == "__main__":
             if args.with_learning == "on":
                 biBaseWithLearning(states)
 
+                sys.exit(0)
+            if args.front_to_front == "yes":
+                biBaseFF(states, args.with_noise == "on")
                 sys.exit(0)
             biBaseMM(states)
             sys.exit(0)

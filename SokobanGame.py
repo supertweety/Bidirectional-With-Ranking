@@ -1,6 +1,7 @@
 from typing import Tuple
 import copy
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 class SokobanGame:
     def __init__(self, puzzle, isBackward = False):
         self.puzzle = puzzle
@@ -63,6 +64,22 @@ class SokobanGame:
                 new_copy[target[0]][target[1]] = 2
         return new_copy
     
+    def compareGames(self, game1, game2):
+        boxes_1 = list(zip(*np.where(game1 == 4)))
+        boxes_2 = list(zip(*np.where(game2 == 4)))
+        player_1 = list(zip(*np.where(game1 == 3)))[0]
+        player_2 = list(zip(*np.where(game2 == 3)))[0]
+        statement = (set(boxes_1) == set(boxes_2)) and player_1 == player_2
+        return statement
+    
+    def successorInVisited(self,decodedMap, visited):
+        for vis in visited:
+            decoded_vis = self.decodeMap(vis)
+            if self.compareGames(decodedMap, decoded_vis):
+                return True
+        return False
+                        
+    
     def hasDeadlock(self, board):
         ### To Be Implemented
         box_locs = list(zip(*(np.where(board == 4))))
@@ -119,12 +136,24 @@ class SokobanGame:
             if box_loc not in self.target:
                 return False
         return True
-    def evaluateBoard(self, board):
+    def evaluateBoard(self, board, open_set_state=None):
         block_locations = list(zip(*np.where(board == 4)))
         distances = 0
+        targets = self.target
+        if open_set_state is not None:
+            s_boxes = list(zip(*np.where(board == 4)))
+            d_boxes = list(zip(*np.where(open_set_state == 4)))
+            s_d_matrix = np.zeros((len(s_boxes), len(d_boxes)))
+            for sIndex, sbox in enumerate(s_boxes):
+                for dIndex, dbox in enumerate(d_boxes):
+                    s_d_matrix[sIndex][dIndex] =  abs(dbox[0] - sbox[0]) + abs(dbox[1] - sbox[1])
+            row_ind, col_ind = linear_sum_assignment(s_d_matrix)
+            h_boxes = s_d_matrix[row_ind, col_ind].sum()
+            return h_boxes
+
         for loc_tuple in block_locations:
             min_distance_for_box = float('inf')
-            for targ_tuple in self.target:
+            for targ_tuple in targets:
                 distance = abs(targ_tuple[0] - loc_tuple[0]) + abs(targ_tuple[1] - loc_tuple[1])
                 if distance < min_distance_for_box:
                     min_distance_for_box = distance
@@ -156,6 +185,7 @@ class SokobanGame:
         return player_location
     def move(self,current_loc, direction_and_movement):
         movement = direction_and_movement[1]
+        # print(movement)
         #action_object = self.action_map.get(direction)
         
         # 3. Execute the move

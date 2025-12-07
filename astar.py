@@ -2,9 +2,10 @@ import numpy as np
 from typing import Tuple, Set, Optional
 from SokobanGame import SokobanGame
 import heapq
-from to_categorical_tensor import to_categorical_tensor
+from astar_helper import to_categorical_tensor
 from typing import Literal
 from collections import OrderedDict
+from sample_random import samp_rand_norm
 GameMap = {
     "Sokoban": SokobanGame
 }
@@ -25,6 +26,7 @@ class Astar():
         self.current_map: Optional[list] = None # Will store the map/puzzle corresponding to current_loc
         self.iteration = 0
         self.isBackward=isBackward
+        self.front_to_front_d_s = {}
         self.best_gscore = {}
     def isComplete(self):
         return not (self.heap.length() > 0)
@@ -42,10 +44,11 @@ class Astar():
         self.heap.insert(0,0,(self.current_loc, self.game.puzzle))
         self.best_gscore[initial_encoded_map] = 0
         self.current_map = self.game.puzzle
+        self.front_to_front_d_s[self.game.encodeMap(self.game.puzzle)] = self.game.encodeMap(self.game.initializeBackwardPuzzle(self.game.puzzle))
         
         return self.current_map
     
-    def stepAstar(self, score_calc_type: Literal["BaseHeuristic", "MM", "Neural", "MM_Neural"]="BaseHeuristic", updateObject=None) -> Tuple[bool, Optional[list]]:
+    def stepAstar(self, score_calc_type: Literal["BaseHeuristic", "MM", "Neural", "MM_Neural", "FF"]="BaseHeuristic", updateObject=None) -> Tuple[bool, Optional[list]]:
 
         """
         Executes one step of the A* search algorithm.
@@ -56,9 +59,29 @@ class Astar():
         """
         if self.heap.length() == 0:
             return (False, self.game.puzzle, 0)
+        if score_calc_type == "FF":
+            ma = self.heap.getMin(ff=True)
+        else:
+            ma = self.heap.getMin()
+        if score_calc_type == "FF":
+            # if self.game.encodeMap(ma[1][1]) not in self.front_to_front_d_s:
+            #     prin
+            
+            while not self.areSimilar(self.game.decodeMap(self.front_to_front_d_s[self.game.encodeMap(ma[1][1])]), updateObject["oppositeAstar"]):
+                g_s = ma[0][0]
+                if self.game.compareGames(ma[1][1], updateObject["oppositeAstar"]) or self.game.compareGames(ma[1][1], self.game.goal_map):
+                    return (True, self.game.puzzle, -1)
+                recalculated_priority = self.game.evaluateBoard(ma[1][1], updateObject["oppositeAstar"]) + g_s
+                if updateObject["with_noise"] is True:
+                    recalculated_priority += samp_rand_norm()
+                to_goal_priority = self.game.evaluateBoard(ma[1][1]) + ma[0][0]
+                self.heap.insert(ma[0][0], recalculated_priority, (ma[1][0], ma[1][1]), priority_end=to_goal_priority)
+                ma = self.heap.getMin(ff=True)
+                # print(recalculated_priority)
 
-        ma = self.heap.getMin()
-
+                self.front_to_front_d_s[self.game.encodeMap(ma[1][1])] = self.game.encodeMap(updateObject["oppositeAstar"])
+            if self.game.compareGames(ma[1][1], updateObject["oppositeAstar"]) or self.game.compareGames(ma[1][1], self.game.goal_map):
+                    return (True, self.game.puzzle, -1)
         current_map_score = ma[0][0]
         current_priority_score = ma[0][1]
 
@@ -132,12 +155,23 @@ class Astar():
                     else:
                         gScore = current_map_score + 1
                     aStarScore = gScore + score
+                case "FF":
+                    if self.game.successorInVisited(new_map, updateObject["opposite_visited"]):
+                        print("WOWOW")
+                        self.parentMap[self.game.encodeMap(new_map)] = encodedMap
+                        return (True, new_map, -1)
+                    score = self.game.evaluateBoard(new_map, updateObject["oppositeAstar"])
+                    if updateObject["with_noise"] is True:
+                        score += samp_rand_norm()
+                    aStarScore = current_map_score + score+ 1
             
-            if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural":
+            if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural" or score_calc_type == "FF":
                 if self.heap.contains(self.game.encodeMap(new_map)) == False:
                     self.parentMap[self.game.encodeMap(new_map)] = encodedMap
                     self.best_gscore[self.game.encodeMap(new_map)] = current_map_score + 1
                     self.heap.insert(current_map_score + 1, aStarScore, ((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map))
+                    if score_calc_type == "FF":
+                        self.front_to_front_d_s[self.game.encodeMap(new_map)] = self.game.encodeMap(updateObject["oppositeAstar"])
                 elif self.game.encodeMap(new_map) in self.best_gscore and current_map_score + 1 < self.best_gscore[self.game.encodeMap(new_map)]:
                     self.best_gscore[self.game.encodeMap(new_map)] = current_map_score + 1
                     self.parentMap[self.game.encodeMap(new_map)] = encodedMap
@@ -184,7 +218,7 @@ class Astar():
         #print(multiple_maps_for_backwards)
         #self.game.puzzle = self.heap.peek()[1]
         #print(np.where(self.game.puzzle == 3))
-        if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural":
+        if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural" or score_calc_type == "FF":
             return (False, self.game.puzzle, (current_priority_score, current_map_score))
         else: 
             return (False, self.game.puzzle, (current_priority_score, current_map_score, updateObject["U"]))
@@ -259,6 +293,8 @@ class Astar():
             
 
         pass       
+
+
     def calculateNextAction(self, state, box_tar, goal_state, nn):#Strips state
 
         box_on_T=[]
@@ -278,16 +314,19 @@ class Astar():
         categorical_state = to_categorical_tensor(old_state,box_tar,10,10)
         
         categorical_goal_state = to_categorical_tensor(goal_state, box_tar, 10, 10)
+        output = nn(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5))
 
-        val = nn.model.predict([categorical_state.reshape(1,10,10,5),categorical_goal_state.reshape(1,10,10,5)], verbose=0)[1][0][0]
-        return val
+        # val = nn.model.predict([categorical_state.reshape(1,10,10,5),categorical_goal_state.reshape(1,10,10,5)], verbose=0)[1][0][0]
+        return output
     
     def reconstructSuccessfulPath(self, final_puzzle):
         current_game = self.game.encodeMap(final_puzzle)
         path = [current_game]
         encoded_inital_state = self.game.encodeMap(self.puzzle)
         visit = []
+        # iteration = 0
         while current_game != encoded_inital_state:
+            # print("iteration: ", iteration)
             if current_game in visit:
                 print("cycle")
                 visit.append(current_game)
@@ -296,6 +335,8 @@ class Astar():
             path.append(res)
             visit.append(current_game)
             current_game = res
+
+            # iteration += 1
             
         print("done")
         return path
@@ -313,6 +354,24 @@ class Astar():
             X_Train.append(to_categorical_tensor(k,box_tar, 10,10))
             Y_Train.append(goal_state)
         return np.array(X_Train), np.array(Y_Train)  #minibatch
+    
+    def loss(self, successfulPath):
+        ## Sigma s in S^pi where pi is the optimal plan
+        nn_costs = []
+        optimal_costs = []
+        for encoded_state in successfulPath:
+            nn_value = self.calculateNextAction(self.game.decodeMap(encoded_state), self.game.target, self.game.goal_map, self.nn)
+            optimal_value = self.game.evaluateBoard((self.game.decodeMap(encoded_state)))
+            nn_costs.append(nn_value)
+            optimal_costs.append(optimal_value)
+        return nn_costs, optimal_costs
+
+    def areSimilar(self, forward_map, backward_map):
+        s_boxes = list(zip(*np.where(forward_map == 4)))
+        d_boxes = list(zip(*np.where(backward_map == 4)))
+        s_set = set(s_boxes)
+        d_set = set(d_boxes)
+        return s_set == d_set
 
 class PriorityQ:
     def __init__(self, game):
@@ -320,8 +379,11 @@ class PriorityQ:
         self.lookupDict = {}
         self.game: SokobanGame = game
         self.counter = 0
-    def insert(self,value: int, priority: int, element): 
-        heapq.heappush(self.elements, (priority, value, self.counter,  element))
+    def insert(self,value: int, priority: int, element, priority_end=None): 
+        if priority_end != None:
+            heapq.heappush(self.elements, (priority, priority_end, value,  element))
+        else:
+            heapq.heappush(self.elements, (priority, value, self.counter,  element))
         self.lookupDict[self.game.encodeMap(element[1])] = value
         #self.elements.append([(value,priority), element])
         #heapq.heappush(self.elements, [value, self.counter, element])
@@ -337,9 +399,11 @@ class PriorityQ:
         return False
     def getCurrentGScore(self, encoded_map):
         return self.lookupDict[encoded_map]
-    def getMin(self):
+    def getMin(self, ff=False):
         popped_item = heapq.heappop(self.elements)
         priority, value, _,  map_tuple = popped_item
+        if ff is True:
+            priority, _, value,  map_tuple = popped_item
         # print(popped_item)
         ## returns ((map_score, priority_score), (direction, decoded_map))
         restructured = ((value, priority), (map_tuple[0], map_tuple[1]))
@@ -350,7 +414,7 @@ class PriorityQ:
     def peek(self):
             if not self.elements:
                 raise IndexError("peek from empty priority queue")
-            return self.elements[0][1]
+            return self.elements[0][3][1]
             #return self.elements[0][2]
     def getSet(self, encode):
         new_set = set()
