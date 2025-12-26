@@ -24,7 +24,7 @@ def get_data(useDummyData=False):
             duplicate.append(array_s[i])
             index.append(i)
         i+=1
-        if i > 4:
+        if i > 10:
             break
         # break
 

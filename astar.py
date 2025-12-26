@@ -20,6 +20,7 @@ class Astar():
         self.nn = None
         # Instance variables to hold the state of the A* search
         self.visited: Set[str] = set()
+        self.visited_parsed: Set[str] = set()
         self.parentMap = {}
         self.heap: PriorityQ = PriorityQ(self.game)
         self.current_loc: Optional[Tuple[int, int]] = None
@@ -72,8 +73,11 @@ class Astar():
                 if self.game.compareGames(ma[1][1], updateObject["oppositeAstar"]) or self.game.compareGames(ma[1][1], self.game.goal_map):
                     return (True, self.game.puzzle, -1)
                 recalculated_priority = self.game.evaluateBoard(ma[1][1], updateObject["oppositeAstar"]) + g_s
-                if updateObject["with_noise"] is True:
-                    recalculated_priority += samp_rand_norm()
+                if updateObject["with_noise"] != "off":
+                    if updateObject["with_noise"] == "additive":
+                        recalculated_priority += samp_rand_norm()
+                    else:
+                        recalculated_priority *= samp_rand_norm()
                 to_goal_priority = self.game.evaluateBoard(ma[1][1]) + ma[0][0]
                 self.heap.insert(ma[0][0], recalculated_priority, (ma[1][0], ma[1][1]), priority_end=to_goal_priority)
                 ma = self.heap.getMin(ff=True)
@@ -88,6 +92,7 @@ class Astar():
         map_location_tuple = ma[1]
         encodedMap = self.game.encodeMap(map_location_tuple[1])
         self.visited.add(encodedMap)
+        self.visited_parsed.add(self.game.getStateHash(map_location_tuple[1]))
         current_loc = map_location_tuple[0]
 
         current_puzzle_encoded = self.game.encodeMap(self.game.puzzle)
@@ -134,7 +139,16 @@ class Astar():
             aStarScore = 0
             match score_calc_type:
                 case "BaseHeuristic":
+                    if "opposite_visited" in updateObject and self.game.getStateHash(new_map) in updateObject["opposite_visited"]:
+                        # print("WOWOW")
+                        self.parentMap[self.game.encodeMap(new_map)] = encodedMap
+                        return (True, new_map, -1)
                     score = self.game.evaluateBoard(new_map)
+                    if updateObject["with_noise"] != "off":
+                        if updateObject["with_noise"] == "additive":
+                            score += samp_rand_norm()
+                        else:
+                            score *= samp_rand_norm()
                     aStarScore = current_map_score + score+ 1
                 case "MM":
                     score = self.game.evaluateBoard(new_map)
@@ -156,13 +170,16 @@ class Astar():
                         gScore = current_map_score + 1
                     aStarScore = gScore + score
                 case "FF":
-                    if self.game.successorInVisited(new_map, updateObject["opposite_visited"]):
+                    if self.game.getStateHash(new_map) in updateObject["opposite_visited"]:
                         print("WOWOW")
                         self.parentMap[self.game.encodeMap(new_map)] = encodedMap
                         return (True, new_map, -1)
                     score = self.game.evaluateBoard(new_map, updateObject["oppositeAstar"])
-                    if updateObject["with_noise"] is True:
-                        score += samp_rand_norm()
+                    if updateObject["with_noise"] != "off":
+                        if updateObject["with_noise"] == "additive":
+                            score += samp_rand_norm()
+                        else:
+                            score *= samp_rand_norm()
                     aStarScore = current_map_score + score+ 1
             
             if score_calc_type == "BaseHeuristic" or score_calc_type == "Neural" or score_calc_type == "FF":

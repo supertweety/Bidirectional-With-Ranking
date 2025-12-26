@@ -72,6 +72,12 @@ class SokobanGame:
         statement = (set(boxes_1) == set(boxes_2)) and player_1 == player_2
         return statement
     
+    def getStateHash(self, game):
+        boxes_1 = list(zip(*np.where(game == 4)))
+        player_1 = list(zip(*np.where(game == 3)))[0]
+        all_coords = [player_1] + boxes_1
+        return "".join(str(val) for tup in all_coords for val in tup)
+    
     def successorInVisited(self,decodedMap, visited):
         for vis in visited:
             decoded_vis = self.decodeMap(vis)
@@ -125,7 +131,8 @@ class SokobanGame:
         # if that was the original format:
         # decoded_map_list = decoded_map.tolist()
         return decoded_map
-    def encodeMap(self,map):
+    @staticmethod
+    def encodeMap(map):
         numpyMap = np.array(map)
         flattened = np.ravel(numpyMap)
         board_string = "".join(str(x) for x in flattened)
@@ -150,15 +157,24 @@ class SokobanGame:
             row_ind, col_ind = linear_sum_assignment(s_d_matrix)
             h_boxes = s_d_matrix[row_ind, col_ind].sum()
             return h_boxes
-
-        for loc_tuple in block_locations:
-            min_distance_for_box = float('inf')
-            for targ_tuple in targets:
-                distance = abs(targ_tuple[0] - loc_tuple[0]) + abs(targ_tuple[1] - loc_tuple[1])
-                if distance < min_distance_for_box:
-                    min_distance_for_box = distance
-            distances += min_distance_for_box
-        return distances
+        else:
+            s_boxes = list(zip(*np.where(board == 4)))
+            d_boxes = list(zip(*np.where(self.goal_map == 4)))
+            s_d_matrix = np.zeros((len(s_boxes), len(d_boxes)))
+            for sIndex, sbox in enumerate(s_boxes):
+                for dIndex, dbox in enumerate(d_boxes):
+                    s_d_matrix[sIndex][dIndex] =  abs(dbox[0] - sbox[0]) + abs(dbox[1] - sbox[1])
+            row_ind, col_ind = linear_sum_assignment(s_d_matrix)
+            h_boxes = s_d_matrix[row_ind, col_ind].sum()
+            return h_boxes
+            # for loc_tuple in block_locations:
+            #     min_distance_for_box = float('inf')
+            #     for targ_tuple in targets:
+            #         distance = abs(targ_tuple[0] - loc_tuple[0]) + abs(targ_tuple[1] - loc_tuple[1])
+            #         if distance < min_distance_for_box:
+            #             min_distance_for_box = distance
+            #     distances += min_distance_for_box
+            # return distances
         # min_
         # for block in 
 
