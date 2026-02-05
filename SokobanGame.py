@@ -2,6 +2,7 @@ from typing import Tuple
 import copy
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+import random
 class SokobanGame:
     def __init__(self, puzzle, isBackward = False):
         self.puzzle = puzzle
@@ -63,6 +64,25 @@ class SokobanGame:
             if  new_copy[target[0]][target[1]] != 3 and new_copy[target[0]][target[1]] != 4:
                 new_copy[target[0]][target[1]] = 2
         return new_copy
+    
+    def initalizeRandomStates(state, number):
+        avaiable_locations = list(zip(*np.where(state == 1)))
+ 
+        player_loc = list(zip(*np.where(state == 3)))[0]
+        visited = set()
+        states = []
+        for i in range(number):
+            rand_indx = random.randint(0, len(avaiable_locations) - 1)
+            while rand_indx in visited:
+                rand_indx = random.randint(0, len(avaiable_locations) - 1)
+            visited.add(rand_indx)
+            new_state = copy.deepcopy(state)
+            new_state[player_loc[0]][player_loc[1]] = 1
+            new_loc = avaiable_locations[rand_indx]
+            new_state[new_loc[0]][new_loc[1]] = 3
+            states.append(new_state)
+        
+        return states
     
     def compareGames(self, game1, game2):
         boxes_1 = list(zip(*np.where(game1 == 4)))

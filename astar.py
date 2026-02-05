@@ -278,38 +278,6 @@ class Astar():
                 return encoded_game, self.heap.getCurrentGScore(encoded_game)
         return None, None
 
-    def trainAstar(self):
-        # visited = set()
-        # visited.add(self.game.encodeMap(self.game.puzzle))
-        # player_location: Tuple[int,int] = self.game.getPlayerLocation(self.puzzle)
-        # current_loc = player_location
-        # heap=PriorityQ()
-        # heap.insert(0, (player_location,self.game.puzzle))
-        # while heap.length() > 0:
-        #     if self.game.isGoal():
-        #         break
-        #     #print(heap)
-        #     ma = heap.getMin()
-        #     current_loc = ma[0]
-        #     self.game.puzzle = ma[1]
-        #     #print(current_loc) 
-        #     directions = self.game.availableStates(current_loc)
-        #     for direction in directions:
-        #         new_map = self.game.move(current_loc, direction)
-        #         #print("new _amp", new_map)
-        #         #print("dir test", self.game.encodeMap(new_map), visited, self.game.encodeMap(new_map) in visited , new_map)
-        #         if self.game.encodeMap(new_map) in visited:
-        #             continue
-        #         if new_map is not None:
-        #             score = self.game.evaluateBoard(new_map)
-        #             #print("score", score)
-        #             #print((current_loc[0]+direction[0], current_loc[1] + direction[1]))
-        #             heap.insert(score,((current_loc[0]+direction[0], current_loc[1] + direction[1]),new_map))
-        #     visited.add(self.game.encodeMap(ma[1]))
-            
-            
-
-        pass       
 
 
     def calculateNextAction(self, state, box_tar, goal_state, nn):#Strips state
@@ -327,7 +295,6 @@ class Astar():
             return 0
 
         old_state = state
-        ## splits up the state into (10,10,5) for each x in 1-5 is a one hot encoding of each category (walls, player, ...)
         categorical_state = to_categorical_tensor(old_state,box_tar,10,10)
         
         categorical_goal_state = to_categorical_tensor(goal_state, box_tar, 10, 10)

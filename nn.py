@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import math
-
+import numpy as np
 # --- 1. Positional Encoding Layer ---
 
 def get_positional_encoding(H, W, C):
@@ -293,6 +293,44 @@ class NN(nn.Module):
         return op2
     def initialize_cr_opt(self):
         criterion = nn.MSELoss()
-
         optimizer = optim.Adam(self.parameters(), lr=0.001)
         return criterion, optimizer
+    def to_categorical(self, y, num_classes):
+        """ 1-hot encodes a tensor """
+        return np.eye(num_classes, dtype='uint8')[y]
+
+    def to_categorical_tensor(self, x3d,Tar,dim1,dim2):
+        find_box_pos = np.where(x3d == 4)
+        pos=list(zip(find_box_pos[0], find_box_pos[1]))
+        x1d = x3d.ravel()
+
+        y1d = self.to_categorical( x1d, 5 )
+
+        y4d = y1d.reshape( [dim1, dim2, 5])
+
+        for i in range(len(pos)):
+            y4d[Tar[i][0]][Tar[i][1]][2] = 1
+            y4d[pos[i][0]][pos[i][1]][2] = 1
+        return y4d
+
+
+    
+    def inference(self,state, box_tar,goal_state):
+        box_on_T=[]
+
+        current_box_locations =  list(zip(*(np.where(state == 4))))
+
+        # for i in range(len(box_tar)):
+        #     ## where the boxes are
+        #     if state[box_tar[i][0]][box_tar[i][1]] == 4:
+        #         box_on_T.append([box_tar[i][0],box_tar[i][1]])
+        ## if completed
+        if len(box_on_T) == len(box_tar):
+            return 0
+
+        old_state = state
+        categorical_state = self.to_categorical_tensor(old_state,box_tar,10,10)
+        
+        categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
+        output = self(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5))
+        return output
