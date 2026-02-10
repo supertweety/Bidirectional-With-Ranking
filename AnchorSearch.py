@@ -11,7 +11,7 @@ class SearchFrontier:
         self.nn = nn
         # self.side = side
         self.isBackward = isBackward
-        # print("With Random Start States")
+
         inital_start_states = SokobanGame.initalizeRandomStates(start_state, 3)
         inital_start_states.append(start_state)
 
@@ -43,9 +43,7 @@ class SearchFrontier:
             self.valid_solution = False
             return "FAILED" # Search failed
 
-        # 1. SAMPLE TO FIND BEST CANDIDATE
-        # The C++ code looks at the last 'n' elements of open to find the one 
-        # closest to the other side's anchor.
+
         min_dist = float('inf')
         best_candidate_idx = len(self.open) - 1
         
@@ -57,7 +55,7 @@ class SearchFrontier:
             # Use your MWPM Manhattan heuristic h(s, d)
             dist = 0
             if self.nn != None:
-                dist = self.nn.inference(current_state, self.game.target, self.game.flipGame(other_front.anchor))
+                dist = self.nn.inference(current_state, self.game.target, self.game.flipGame(other_front.anchor)) + self.open_closed[curr_hash]["g"]
             else:
                 dist = (self.game.evaluateBoard(current_state, other_front.anchor) + self.open_closed[curr_hash]["g"])  
             # print(f"Frontier Size: {len(self.open)} | Dist to Anchor: {dist}")

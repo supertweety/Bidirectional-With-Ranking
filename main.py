@@ -509,12 +509,12 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
                     # print("MOVED")
                     # Expand Forward towards Backward's Anchor
                     status1 = frontAnchorSearch.step(backwardAnchorSearch)
-                    # draw_game(frontAnchorSearch.anchor, screen)
+                    draw_game(frontAnchorSearch.anchor, screen)
                     alternate = False
                 else:
                     # Expand Backward towards Forward's Anchor (FIXED)
                     status2 = backwardAnchorSearch.step(frontAnchorSearch)
-                    # draw_game(backwardAnchorSearch.anchor, screen)
+                    draw_game(backwardAnchorSearch.anchor, screen)
                     alternate = True
 
                 # Check the status of the step JUST taken
