@@ -1,6 +1,6 @@
 # Example file showing a basic pygame "game loop"
 import pygame
-from pygame_files.drawGame import draw_game, draw_finish_screen, draw_bidirectional_screen, redrawText
+from pygame_files.drawGame import draw_game, draw_finish_screen, draw_bidirectional_screen, draw_side_by_side, redrawText
 from getData import get_data
 from astar import Astar
 import sys
@@ -15,6 +15,7 @@ import torch
 import csv
 from AnchorSearch import SearchFrontier
 from typing import Literal
+import json
 # pygame setup
 # pygame.init()
 
@@ -345,63 +346,107 @@ def biBaseAnchorSearch(states ,forward_puzzle, backwardPuzzle, withLearning):
 
     ## Evaluation function to see how the model does
     if withLearning:
+        
         print("--- Post Learning Scores --- ")
         frontAnchorSearch = SearchFrontier(forward_puzzle, False, nn=nn)
         backwardAnchorSearch = SearchFrontier(backwardPuzzle, True, nn=nn)
-        with torch.no_grad():
-            for state in range(1, len(states)):
-                completed = False
-                alternate = True
-                status = ""
-                status2 = ""
-                step_counter = 0
-                path = []
-                
-                while not completed:
-                    if alternate:
-                        # Expand Forward towards Backward's Anchor
-                        status = frontAnchorSearch.step(backwardAnchorSearch)
-                        alternate = False
-                    else:
-                        # Expand Backward towards Forward's Anchor (FIXED)
-                        status2 = backwardAnchorSearch.step(frontAnchorSearch)
-                        alternate = True
+        if os.path.exists('./frontAnchorSearchParentMap.json') and os.path.exists('./backwardAnchorSearchParentMap.json') and os.path.exists('./frontrendezvous.txt') and os.path.exists('./backrendezvous.txt'):
+            print("--- Already discovered Paths --- ")
+            frontAnchorSearch.parentMap = json.loads(open('./frontAnchorSearchParentMap.json').read())
+            backwardAnchorSearch.parentMap = json.loads(open('./backwardAnchorSearchParentMap.json').read())
+            frontAnchorSearch.rendezvous = frontAnchorSearch.game.decodeMap(open('./frontrendezvous.txt').read())
+            backwardAnchorSearch.rendezvous = backwardAnchorSearch.game.decodeMap(open('./backrendezvous.txt').read())
+            front_path = frontAnchorSearch.reconstructPath()
+            front_path.reverse()
+            back_path = backwardAnchorSearch.reconstructPath()
 
-                    # Check the status of the step JUST taken
-                    if status == "SUCCESS" or status2 == "SUCCESS":
-                        print("Learning Converged!", step_counter)
-                        # front_path = frontAnchorSearch.reconstructPath()
-                        # back_path = backwardAnchorSearch.reconstructPath()
-                        # # print(len(front_path), len(back_path)) 
-                        # back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
-                        # path = front_path + back_path_f_oriented
+            # # print(len(front_path), len(back_path)) 
+            back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
+            path = front_path + back_path_f_oriented
 
-                        completed = True
-                        break
 
-                    if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
-                        # Check if BOTH have now failed
-                        if status == "FINISHED_EARLY":
-                            print("Front finished first")
+        else: 
+            with torch.no_grad():
+                for state in range(1, len(states)):
+                    completed = False
+                    alternate = True
+                    status = ""
+                    status2 = ""
+                    step_counter = 0
+                    path = []
+                    
+                    while not completed:
+                        if alternate:
+                            # Expand Forward towards Backward's Anchor
+                            status = frontAnchorSearch.step(backwardAnchorSearch)
+                            alternate = False
                         else:
-                            print("Back Finished First")
-                        #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
-                        print("Did not Converge: One side finished and did not meet")
-                        completed = True
-                        break 
-                    if status == "FAILED" or status2 == "FAILED":
-                        # Check if BOTH have now failed
-                        #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
-                        print("Did not Converge: Search space exhausted on both sides.")
-                        completed = True
+                            # Expand Backward towards Forward's Anchor (FIXED)
+                            status2 = backwardAnchorSearch.step(frontAnchorSearch)
+                            alternate = True
+
+                        # Check the status of the step JUST taken
+                        if status == "SUCCESS" or status2 == "SUCCESS":
+                            print("Learning Converged!", step_counter)
+                            with open('frontAnchorSearchParentMap.json', 'w') as f:
+                                json.dump(frontAnchorSearch.parentMap, f)
+                            with open('backwardAnchorSearchParentMap.json', 'w') as f:
+                                json.dump(backwardAnchorSearch.parentMap, f)
+                            with open('frontrendezvous.txt', 'w') as f:
+                                json.dump(frontAnchorSearch.game.encodeMap(frontAnchorSearch.rendezvous), f) 
+                            with open('backrendezvous.txt', 'w') as f:
+                                json.dump(backwardAnchorSearch.game.encodeMap(backwardAnchorSearch.rendezvous), f) 
+                            front_path = frontAnchorSearch.reconstructPath()
+                            back_path = backwardAnchorSearch.reconstructPath()
+                            # # print(len(front_path), len(back_path)) 
+                            back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
+                            path = front_path + back_path_f_oriented
+
+                            completed = True
+                            break
+
+                        if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
+                            # Check if BOTH have now failed
+                            if status == "FINISHED_EARLY":
+                                print("Front finished first")
+                            else:
+                                print("Back Finished First")
+                            #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
+                            print("Did not Converge: One side finished and did not meet")
+                            completed = True
+                            break 
+                        if status == "FAILED" or status2 == "FAILED":
+                            # Check if BOTH have now failed
+                            #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
+                            print("Did not Converge: Search space exhausted on both sides.")
+                            completed = True
+                            break
+                        step_counter += 1
+
+        
+
+                    frontAnchorSearch = SearchFrontier(states[state], False, nn=nn)
+                    backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True, nn=nn)
+        index = 0
+        #draw_game(end_Map, screen)
+        pygame.display.flip()
+        draw_game(frontAnchorSearch.game.decodeMap(path[index]), screen)
+        while True:
+            if index <= len(path):
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
                         break
-                    step_counter += 1
 
-    
+                    keys = pygame.key.get_pressed()
+                    if (keys[pygame.K_RIGHT]): 
+                        index += 1   
+                        draw_game(frontAnchorSearch.game.decodeMap(path[index]), screen)
+                        
 
-                frontAnchorSearch = SearchFrontier(states[state], False, nn=nn)
-                backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True, nn=nn)
-    
+                pygame.display.flip()
+                clock.tick(60)
+        pygame.quit()
+
 def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
     
     frontAnchorSearch = SearchFrontier(forward_puzzle, False)
@@ -493,7 +538,7 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
         print("--- Post Learning Scores --- ")
         frontAnchorSearch = SearchFrontier(forward_puzzle, False, nn=nn)
         backwardAnchorSearch = SearchFrontier(backwardPuzzle, True, nn=nn)
- 
+    draw_side_by_side(frontAnchorSearch.anchor, backwardAnchorSearch.anchor, screen)
     # sys.exit(0)
     while running:
         # poll for events
@@ -501,20 +546,20 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            mouse = pygame.mouse.get_pos()
+            # mouse = pygame.mouse.get_pos()
 
             keys = pygame.key.get_pressed()
-            if (event.type == pygame.MOUSEBUTTONDOWN and is_completed == False and button.command(mouse[0], mouse[1]) == True ) or (keys[pygame.K_RIGHT]):    
+            if (keys[pygame.K_RIGHT]):    
                 if alternate:
                     # print("MOVED")
                     # Expand Forward towards Backward's Anchor
                     status1 = frontAnchorSearch.step(backwardAnchorSearch)
-                    draw_game(frontAnchorSearch.anchor, screen)
+                    # draw_game(frontAnchorSearch.anchor, screen)
                     alternate = False
                 else:
                     # Expand Backward towards Forward's Anchor (FIXED)
                     status2 = backwardAnchorSearch.step(frontAnchorSearch)
-                    draw_game(backwardAnchorSearch.anchor, screen)
+                    # draw_game(backwardAnchorSearch.anchor, screen)
                     alternate = True
 
                 # Check the status of the step JUST taken
@@ -531,7 +576,7 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
                     else:
                         print("Back Finished First")
                     #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
-    
+
                     print("Did not Converge: One side finished and did not meet")
                     completed = True
                     break 
@@ -541,6 +586,8 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
                     print("Did not Converge: Search space exhausted on both sides.")
                     completed = True
                     break
+                draw_side_by_side(frontAnchorSearch.anchor, backwardAnchorSearch.anchor, screen)
+            # pygame.time.delay(3000)
 
                 
 
@@ -1084,12 +1131,12 @@ if __name__ == "__main__":
         
         pygame.init()
         pygame.font.init()
-        screen = pygame.display.set_mode((640, 640))
+        screen = pygame.display.set_mode((1280, 640))
         clock = pygame.time.Clock()
         running = True
         is_completed = False
         
-        button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
+        # button, flip_button = draw_bidirectional_screen(only_one_state, screen, True)
         forwardAStar = Astar(only_one_state, "Sokoban")
         backward_puzzle = forwardAStar.game.initializeBackwardPuzzle(only_one_state)
         backwardAStar = Astar(backward_puzzle, "Sokoban", True)

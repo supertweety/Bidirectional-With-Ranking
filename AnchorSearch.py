@@ -12,8 +12,9 @@ class SearchFrontier:
         # self.side = side
         self.isBackward = isBackward
 
-        inital_start_states = SokobanGame.initalizeRandomStates(start_state, 3)
-        inital_start_states.append(start_state)
+        # inital_start_states = SokobanGame.initalizeRandomStates(start_state, 3)
+        # inital_start_states.append(start_state)
+        inital_start_states = [start_state]
 
         self.open = inital_start_states
         # Maps hash -> {"g": cost, "parent": state, "loc": index_in_open}
@@ -56,9 +57,10 @@ class SearchFrontier:
             dist = 0
             if self.nn != None:
                 dist = self.nn.inference(current_state, self.game.target, self.game.flipGame(other_front.anchor)) + self.open_closed[curr_hash]["g"]
+                #  dist = self.nn.inference(current_state, self.game.target, self.game.goal_map) + self.open_closed[curr_hash]["g"]
             else:
                 dist = (self.game.evaluateBoard(current_state, other_front.anchor) + self.open_closed[curr_hash]["g"])  
-            # print(f"Frontier Size: {len(self.open)} | Dist to Anchor: {dist}")
+            # print(f"Frontier Size: {len(self.open)} | Dist to Anchor: {dist} and min dist is  {min_dist}")
             
             best_hash = self.game.encodeMap(self.open[best_candidate_idx])
             
@@ -86,8 +88,12 @@ class SearchFrontier:
         # Check if the node we just popped is in the other side's visited set
         # print(self.isBackward, best_hash, self.game.encodeMap(other_front.game.flipGame(best_candidate)))
         if self.open_closed_set.isdisjoint(other_front.open_closed_set) == False:
-            self.rendezvous = best_candidate
-            other_front.rendezvous = other_front.game.flipGame(best_candidate)
+            z = self.open_closed_set.intersection(other_front.open_closed_set)
+            
+            arbitrary_item = self.game.reconstruct_game(self.anchor, z.pop())
+            print(arbitrary_item)
+            self.rendezvous = arbitrary_item
+            other_front.rendezvous = other_front.game.flipGame(arbitrary_item)
             # print(self.game.encodeMap(other_front.game.flipGame(best_candidate)))
             return "SUCCESS"
         
@@ -119,10 +125,10 @@ class SearchFrontier:
                     self.open_closed[nhash]["g"] = new_g
                     self.open_closed[nhash]["parent"] = best_candidate
                     # RE-OPEN if it was closed
-                    if self.open_closed[nhash]["loc"] == -1:
-                        self.open.append(neighbor)
-                        self.open_closed[nhash]["loc"] = len(self.open) - 1
-                        self.parentMap[nhash] = best_hash
+                    # if self.open_closed[nhash]["loc"] == -1:
+                    #     self.open.append(neighbor)
+                    #     self.open_closed[nhash]["loc"] = len(self.open) - 1
+                    #     self.parentMap[nhash] = best_hash
             else:
                 # print("nade with", nhash)
                 # New state discovered
@@ -165,7 +171,7 @@ class SearchFrontier:
                 print("cycle")
                 visit.append(current_game)
                 return visit
-            if current_game in self.parentMap:
+            if current_game in self.parentMap  :
 
                 parent = self.parentMap[current_game]
                 # print(parent)
@@ -173,9 +179,9 @@ class SearchFrontier:
                 visit.append(current_game)
                 current_game = parent
             else:
-                print("ERROR: ", len(path), self.game.encodeMap(self.rendezvous))
+                print("ERROR: ", len(path), self.game.encodeMap(current_game), self.game.encodeMap(self.rendezvous) in self.parentMap)
                 sys.exit(1)
-        path.reverse()
+        # path.reverse()
         return path
     
     def flipPath(self, path):

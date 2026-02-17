@@ -98,6 +98,33 @@ class SokobanGame:
         all_coords = [player_1] + boxes_1
         return "".join(str(val) for tup in all_coords for val in tup)
     
+
+    def reconstruct_game(self, current_game, state_hash):
+        # 1. Start with a copy of the current board
+        new_board = np.array(current_game).copy()
+        
+        # 2. "Clean" the board: Convert all Players(3) and Boxes(4) back to Floor(1)
+        # Note: This assumes you don't have targets covered in this specific array.
+        # If targets CAN be covered, we'd need a way to know where they were.
+        new_board[new_board == 3] = 1
+        new_board[new_board == 4] = 1
+        
+        # 3. Parse the hash (Assuming 1-digit coordinates for 10x10)
+        coords = [int(d) for d in state_hash]
+        
+        # 4. Place Player
+        py, px = coords[0], coords[1]
+        new_board[py][px] = 3
+        
+        # 5. Place Boxes
+        for i in range(2, len(coords), 2):
+            by, bx = coords[i], coords[i+1]
+            new_board[by][bx] = 4
+            
+        return new_board
+    
+
+
     def successorInVisited(self,decodedMap, visited):
         for vis in visited:
             decoded_vis = self.decodeMap(vis)
