@@ -10,8 +10,22 @@ GameMap = {
     "Sokoban": SokobanGame
 }
 
-class Astar():
+class Astar:
+    """
+    A* search implementation for specific games (e.g., Sokoban).
+    Supports standard, bidirectional, and neural-network-guided search.
+    """
     def __init__(self, puzzle, game_name, isBackward = False, alpha=1, beta=1):
+        """
+        Initialize the A* search.
+        
+        Args:
+            puzzle (np.ndarray): The initial puzzle state.
+            game_name (str): The name of the game (e.g., "Sokoban").
+            isBackward (bool): Whether to perform backward search.
+            alpha (float): Scaling factor for g-score.
+            beta (float): Scaling factor for h-score.
+        """
         self.dim = 10
         self.game = GameMap[game_name](puzzle, isBackward)
         self.alpha = alpha
@@ -30,8 +44,17 @@ class Astar():
         self.front_to_front_d_s = {}
         self.best_gscore = {}
     def isComplete(self):
+        """
+        Check if the search is complete (no more states to expand).
+        
+        Returns:
+            bool: True if complete, False otherwise.
+        """
         return not (self.heap.length() > 0)
     def initAstar(self):
+        """
+        Initialize the A* search state by adding the starting position to the heap.
+        """
         """Initializes the A* search state."""
         self.visited.clear()
         #self.heap = type(self.heap)()  # Re-initialize the priority queue (assuming it has a clear-like method or can be re-instantiated)
@@ -254,6 +277,16 @@ class Astar():
         return minimum_priority
     
     def calculateOpenSetMaxorMinValue(self, value_type: Literal["g_value", "f_value"]="f_value" ,cutoff: Literal["max", "min"]="min"):
+        """
+        Calculate the min or max g/f value in the open set.
+        
+        Args:
+            value_type (str): Either "g_value" or "f_value".
+            cutoff (str): Either "max" or "min".
+            
+        Returns:
+            float: The calculated value.
+        """
         value = float('inf')
         for f_value, g_value, counter,  element in self.heap.elements:
             current_value = f_value if value_type == "f_value" else g_value
@@ -263,6 +296,15 @@ class Astar():
 
     
     def checkGameInHeap(self, encoded_current_game):
+        """
+        Check if a game state is currently in the heap.
+        
+        Args:
+            encoded_current_game (str): Encoded map of the game state.
+            
+        Returns:
+            bool: True if in heap, False otherwise.
+        """
         # print(encoded_current_game)
         flipped_game = self.game.flipGame(self.game.decodeMap(encoded_current_game))
 
@@ -281,6 +323,18 @@ class Astar():
 
 
     def calculateNextAction(self, state, box_tar, goal_state, nn):#Strips state
+        """
+        Predict the h-score for the current state using the neural network.
+        
+        Args:
+            state (np.ndarray): Current game state.
+            box_tar (list): Target locations.
+            goal_state (np.ndarray): Goal state board.
+            nn (NN): Neural network model.
+            
+        Returns:
+            float: Predicted heuristic cost.
+        """
 
         box_on_T=[]
 
@@ -304,6 +358,15 @@ class Astar():
         return output
     
     def reconstructSuccessfulPath(self, final_puzzle):
+        """
+        Reconstruct the path from the start state to the final puzzle state.
+        
+        Args:
+            final_puzzle (str or np.ndarray): The goal state or its encoded string.
+            
+        Returns:
+            list: List of encoded maps on the successful path.
+        """
         current_game = self.game.encodeMap(final_puzzle)
         path = [current_game]
         encoded_inital_state = self.game.encodeMap(self.puzzle)
@@ -326,12 +389,41 @@ class Astar():
         return path
     
     def getBestGScore(self, encoded_map):
+        """
+        Get the best g-score found so far for a specific state.
+        
+        Args:
+            encoded_map (str): Encoded map of the state.
+            
+        Returns:
+            int: The best g-score.
+        """
         return self.best_gscore[encoded_map]
     
     def inOpenSet(self, encodedMap):
+        """
+        Check if a state is in the open set (heap).
+        
+        Args:
+            encodedMap (str): Encoded map of the state.
+            
+        Returns:
+            tuple: (encoded_map, g_score) if in heap, else (None, None).
+        """
         return self.checkGameInHeap(encodedMap)
     
     def create_one_hot(self, key_states, box_tar, goal_state):
+        """
+        Create one-hot encoded tensors for training the neural network.
+        
+        Args:
+            key_states (list): List of game states on a successful path.
+            box_tar (list): Target locations.
+            goal_state (np.ndarray): Goal state board.
+            
+        Returns:
+            tuple: (X_Train, Y_Train) tensors.
+        """
         X_Train = []
         Y_Train = []
         for k in key_states:
@@ -340,6 +432,15 @@ class Astar():
         return np.array(X_Train), np.array(Y_Train)  #minibatch
     
     def loss(self, successfulPath):
+        """
+        Calculate the loss between neural network predictions and heuristic evaluations.
+        
+        Args:
+            successfulPath (list): List of encoded states on a successful path.
+            
+        Returns:
+            tuple: (nn_costs, optimal_costs)
+        """
         ## Sigma s in S^pi where pi is the optimal plan
         nn_costs = []
         optimal_costs = []
@@ -351,6 +452,16 @@ class Astar():
         return nn_costs, optimal_costs
 
     def areSimilar(self, forward_map, backward_map):
+        """
+        Check if two maps are similar based on box locations (used for bidirectional search).
+        
+        Args:
+            forward_map (np.ndarray): Board from forward search.
+            backward_map (np.ndarray): Board from backward search.
+            
+        Returns:
+            bool: True if similar, False otherwise.
+        """
         s_boxes = list(zip(*np.where(forward_map == 4)))
         d_boxes = list(zip(*np.where(backward_map == 4)))
         s_set = set(s_boxes)
@@ -358,12 +469,24 @@ class Astar():
         return s_set == d_set
 
 class PriorityQ:
+    """
+    A priority queue implementation specifically for game maps, supporting lookups by state string.
+    """
     def __init__(self, game):
         self.elements = []
         self.lookupDict = {}
         self.game: SokobanGame = game
         self.counter = 0
     def insert(self,value: int, priority: int, element, priority_end=None): 
+        """
+        Insert an element into the priority queue.
+        
+        Args:
+            value (int): Counter for uniqueness.
+            priority (int): Main priority (usually f-score).
+            element (list): [encoded_map, g_score, f_score].
+            priority_end (int, optional): Secondary priority.
+        """
         if priority_end != None:
             heapq.heappush(self.elements, (priority, priority_end, value,  element))
         else:
@@ -373,17 +496,50 @@ class PriorityQ:
         #heapq.heappush(self.elements, [value, self.counter, element])
         self.counter += 1
     def remove(self,encoded_map):
+        """
+        Remove an element from the priority queue.
+        
+        Args:
+            encoded_map (str): Encoded map of the state to remove.
+        """
         self.elements.remove(encoded_map)
         self.lookupDict.pop(encoded_map, None)
 
     def contains(self, encoded_map):
+        """
+        Check if an encoded map is in the priority queue.
+        
+        Args:
+            encoded_map (str): Encoded map to check.
+            
+        Returns:
+            bool: True if in queue, False otherwise.
+        """
         if encoded_map in self.lookupDict:
             return True
             
         return False
     def getCurrentGScore(self, encoded_map):
+        """
+        Get the current g-score for an encoded map in the queue.
+        
+        Args:
+            encoded_map (str): Encoded map in the queue.
+            
+        Returns:
+            int: The current g-score.
+        """
         return self.lookupDict[encoded_map]
     def getMin(self, ff=False):
+        """
+        Pop and return the minimum priority element from the heap.
+        
+        Args:
+            ff (bool): Whether to use front-to-front priority interpretation.
+            
+        Returns:
+            tuple: Restructured element data.
+        """
         popped_item = heapq.heappop(self.elements)
         priority, value, _,  map_tuple = popped_item
         if ff is True:
@@ -394,13 +550,34 @@ class PriorityQ:
         return restructured
         #return heapq.heappop(self.elements)[2]
     def length(self):
+        """
+        Get the number of elements in the priority queue.
+        
+        Returns:
+            int: Number of elements.
+        """
         return len(self.elements)  
     def peek(self):
-            if not self.elements:
-                raise IndexError("peek from empty priority queue")
-            return self.elements[0][3][1]
-            #return self.elements[0][2]
+        """
+        Peek at the minimum priority element without removing it.
+        
+        Returns:
+            np.ndarray: The map state of the minimum element.
+        """
+        if not self.elements:
+            raise IndexError("peek from empty priority queue")
+        return self.elements[0][3][1]
+        #return self.elements[0][2]
     def getSet(self, encode):
+        """
+        Get a set of all encoded maps currently in the queue.
+        
+        Args:
+            encode (callable): Function to encode a map.
+            
+        Returns:
+            set: Set of encoded maps.
+        """
         new_set = set()
         for priority, value, counter, element in self.elements:
             new_set.add(encode(element[1]))

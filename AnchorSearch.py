@@ -5,7 +5,18 @@ import random
 from sample_random import samp_rand_norm
 import sys
 class SearchFrontier:
+    """
+    Manages the search frontier for the Anchor Search algorithm.
+    """
     def __init__(self, start_state, isBackward, nn=None):
+        """
+        Initialize the SearchFrontier.
+        
+        Args:
+            start_state (np.ndarray): The initial state for this frontier.
+            isBackward (bool): Whether this is a backward search frontier.
+            nn (NN, optional): Neural network for heuristic evaluation.
+        """
         self.start_state = start_state
         self.game = SokobanGame(start_state, isBackward)
         self.nn = nn
@@ -39,6 +50,16 @@ class SearchFrontier:
 
  
     def step(self, other_front, anchor_selection="Temporal"):
+        """
+        Perform one expansion step of the anchor search.
+        
+        Args:
+            other_front (SearchFrontier): The opposite search frontier.
+            anchor_selection (str): Method for selecting the next anchor.
+            
+        Returns:
+            str: Status of the step ("SUCCESS", "FAILED", "FINISHED_EARLY", or "CONTINUE").
+        """
         if not self.open:
             print(self.game.encodeMap(self.anchor))
             self.valid_solution = False
@@ -162,6 +183,12 @@ class SearchFrontier:
 
         return "CONTINUE"
     def reconstructPath(self):
+        """
+        Reconstruct the path from the start state to the rendezvous point.
+        
+        Returns:
+            list: List of encoded maps on the path.
+        """
         inital_state = self.game.encodeMap(self.start_state)
         current_game = self.game.encodeMap(self.rendezvous)
         path = [current_game]
@@ -185,6 +212,15 @@ class SearchFrontier:
         return path
     
     def flipPath(self, path):
+        """
+        Flip the encoded maps in a path for bidirectional consistency.
+        
+        Args:
+            path (list): List of encoded maps.
+            
+        Returns:
+            list: Flipped path.
+        """
         new_path = []
         for encodedPuzzle in path:
             new_path.append(self.game.encodeMap(self.game.flipGame(self.game.decodeMap(encodedPuzzle))))

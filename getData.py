@@ -1,6 +1,15 @@
 import numpy as np
 
 def get_data(useDummyData=False):
+    """
+    Load game states from a text file.
+    
+    Args:
+        useDummyData (bool): Whether to use the small test dataset.
+        
+    Returns:
+        list: List of 10x10 numpy arrays representing game states.
+    """
     all_states=[]
     f = None
     if useDummyData:

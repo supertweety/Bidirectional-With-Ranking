@@ -8,6 +8,17 @@ import numpy as np
 
 def get_positional_encoding(H, W, C):
     """
+    Calculates the 2D positional encoding tensor.
+    
+    Args:
+        H (int): Height.
+        W (int): Width.
+        C (int): Number of channels.
+        
+    Returns:
+        torch.Tensor: Positional encoding signal.
+    """
+    """
     Calculates the 2D positional encoding tensor (1, C, H, W) based on the
     original 'Attention Is All You Need' formulation, but adapted for 2D.
     The signal combines H-encoding for the first C/2 channels and W-encoding
@@ -59,7 +70,16 @@ def get_positional_encoding(H, W, C):
 
 
 class AddPositionalEncoding(nn.Module):
+    """
+    Module to add positional encoding to input features.
+    """
     def __init__(self, dim):
+        """
+        Initialize the positional encoding layer.
+        
+        Args:
+            dim (int): Input dimension.
+        """
         super().__init__()
         self.dim = dim
         self.register_buffer('signal', None) # Stores the signal buffer
@@ -82,6 +102,10 @@ class AddPositionalEncoding(nn.Module):
 
 class AttentionAugmentation2D(nn.Module):
     """
+    Implementation of the Attention Augmentation Layer.
+    Performs multi-head self-attention across spatial dimensions.
+    """
+    """
     Conceptual PyTorch implementation of the Attention Augmentation Layer.
     It performs multi-head self-attention across the spatial dimensions (H*W)
     and projects the output back to the original channel dimension.
@@ -90,6 +114,15 @@ class AttentionAugmentation2D(nn.Module):
     in_channels=180, qk_dim=60, v_dim=60, num_heads=2
     """
     def __init__(self, in_channels, qk_dim, v_dim, num_heads):
+        """
+        Initialize the AttentionAugmentation2D layer.
+        
+        Args:
+            in_channels (int): Number of input channels.
+            qk_dim (int): Query/Key dimension.
+            v_dim (int): Value dimension.
+            num_heads (int): Number of attention heads.
+        """
         super().__init__()
         self.in_channels = in_channels
         self.qk_dim = qk_dim
@@ -140,7 +173,16 @@ class AttentionAugmentation2D(nn.Module):
 # --- 3. Main Neural Network Model ---
 
 class NN(nn.Module):
+    """
+    Multi-input neural network with attention mechanism for heuristic evaluation.
+    """
     def __init__(self, dim):
+        """
+        Initialize the NN model.
+        
+        Args:
+            dim (int): Input dimension.
+        """
         super().__init__()
         self.dim = dim
         self.relu = nn.ReLU()
@@ -204,6 +246,16 @@ class NN(nn.Module):
 
 
     def forward(self, inputA, inputB):
+        """
+        Forward pass of the neural network.
+        
+        Args:
+            inputA (torch.Tensor): First input (e.g., current state).
+            inputB (torch.Tensor): Second input (e.g., goal state).
+            
+        Returns:
+            torch.Tensor: Predicted value.
+        """
         # The Keras model assumes N, H, W, C. PyTorch uses N, C, H, W.
         # Permute inputs from (N, H, W, 5) to (N, 5, H, W)
         inputA = torch.from_numpy(inputA).permute(0, 3, 1, 2).float()
@@ -292,6 +344,12 @@ class NN(nn.Module):
 
         return op2
     def initialize_cr_opt(self):
+        """
+        Initialize loss criterion and optimizer.
+        
+        Returns:
+            tuple: (criterion, optimizer)
+        """
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.parameters(), lr=0.001)
         return criterion, optimizer
@@ -300,6 +358,18 @@ class NN(nn.Module):
         return np.eye(num_classes, dtype='uint8')[y]
 
     def to_categorical_tensor(self, x3d,Tar,dim1,dim2):
+        """
+        Convert a 3D tensor to a categorical one-hot representation.
+        
+        Args:
+            x3d (torch.Tensor): Input tensor.
+            Tar (list): Target locations.
+            dim1 (int): Height.
+            dim2 (int): Width.
+            
+        Returns:
+            torch.Tensor: Categorical tensor.
+        """
         find_box_pos = np.where(x3d == 4)
         pos=list(zip(find_box_pos[0], find_box_pos[1]))
         x1d = x3d.ravel()
@@ -316,6 +386,17 @@ class NN(nn.Module):
 
     
     def inference(self,state, box_tar,goal_state):
+        """
+        Perform inference for a single state.
+        
+        Args:
+            state (np.ndarray): Current state.
+            box_tar (list): Target locations.
+            goal_state (np.ndarray): Goal state.
+            
+        Returns:
+            float: Predicted value.
+        """
         box_on_T=[]
 
         current_box_locations =  list(zip(*(np.where(state == 4))))

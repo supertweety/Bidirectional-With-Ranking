@@ -31,6 +31,14 @@ import json
 # is_completed = False
 
 def baseRun(states, with_noise, aStar):
+    """
+    Core loop for standard A* search over multiple states and epochs.
+    
+    Args:
+        states (list): List of initial game states.
+        with_noise (bool): Whether to add noise to the heuristic.
+        aStar (Astar): Initial A* search object.
+    """
     total = 0
     csv_file = open("search_results.csv", "a")
     results = []
@@ -94,6 +102,13 @@ def baseRun(states, with_noise, aStar):
     # pygame.quit()
 
 def autoGUIRun(running, is_completed):
+    """
+    Automated GUI execution of standard A* search.
+    
+    Args:
+        running (bool): Flag indicating if the game is running.
+        is_completed (bool): Flag indicating if the search is completed.
+    """
     while running:
         # poll for events
         # pygame.QUIT event means the user clicked X to close your window
@@ -124,6 +139,13 @@ def autoGUIRun(running, is_completed):
 
 
 def stepGUIRun(running, is_completed):
+    """
+    Manual step-by-step GUI execution of standard A* search.
+    
+    Args:
+        running (bool): Flag indicating if the game is running.
+        is_completed (bool): Flag indicating if the search is completed.
+    """
     while running:
         # poll for events
         # pygame.QUIT event means the user clicked X to close your window
@@ -159,6 +181,15 @@ def stepGUIRun(running, is_completed):
 
 
 def biBaseFF(states, with_noise, forwardAStar, backwardAStar):
+    """
+    Bidirectional Front-to-Front (FF) A* search.
+    
+    Args:
+        states (list): List of initial game states.
+        with_noise (bool): Whether to add noise to the heuristic.
+        forwardAStar (Astar): Forward search object.
+        backwardAStar (Astar): Backward search object.
+    """
     total = 0
     csv_file = open("search_results.csv", "a")
     results = []
@@ -263,7 +294,16 @@ def biBaseFF(states, with_noise, forwardAStar, backwardAStar):
     pygame.quit()
 
 
-def biBaseAnchorSearch(states ,forward_puzzle, backwardPuzzle, withLearning):
+def biBaseAnchorSearch(states, forward_puzzle, backwardPuzzle, withLearning):
+    """
+    Bidirectional Anchor Search.
+    
+    Args:
+        states (list): List of initial game states.
+        forward_puzzle (np.ndarray): Forward puzzle board.
+        backwardPuzzle (np.ndarray): Backward puzzle board.
+        withLearning (bool): Whether to use neural network learning for heuristics.
+    """
     
     frontAnchorSearch = SearchFrontier(forward_puzzle, False)
     
@@ -279,70 +319,70 @@ def biBaseAnchorSearch(states ,forward_puzzle, backwardPuzzle, withLearning):
     # If 'states' represents levels or sub-problems, this loop is fine.
     # If this is one single search, ensure you aren't resetting unnecessarily.
     
-    # for state in range(1, len(states)):
-    #     completed = False
-    #     alternate = True
-    #     status = ""
-    #     status2 = ""
-    #     step_counter = 0
-    #     path = []
+    for state in range(1, len(states)):
+        completed = False
+        alternate = True
+        status = ""
+        status2 = ""
+        step_counter = 0
+        path = []
         
-    #     while not completed:
-    #         if alternate:
-    #             # Expand Forward towards Backward's Anchor
-    #             status = frontAnchorSearch.step(backwardAnchorSearch)
-    #             alternate = False
-    #         else:
-    #             # Expand Backward towards Forward's Anchor (FIXED)
-    #             status2 = backwardAnchorSearch.step(frontAnchorSearch)
-    #             alternate = True
+        while not completed:
+            if alternate:
+                # Expand Forward towards Backward's Anchor
+                status = frontAnchorSearch.step(backwardAnchorSearch)
+                alternate = False
+            else:
+                # Expand Backward towards Forward's Anchor (FIXED)
+                status2 = backwardAnchorSearch.step(frontAnchorSearch)
+                alternate = True
 
-    #         # Check the status of the step JUST taken
-    #         if status == "SUCCESS" or status2 == "SUCCESS":
-    #             print("Converged!", step_counter)
-    #             # front_path = frontAnchorSearch.reconstructPath()
-    #             # back_path = backwardAnchorSearch.reconstructPath()
-    #             # # print(len(front_path), len(back_path)) 
-    #             # back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
-    #             # path = front_path + back_path_f_oriented
+            # Check the status of the step JUST taken
+            if status == "SUCCESS" or status2 == "SUCCESS":
+                print("Converged!", step_counter)
+                # front_path = frontAnchorSearch.reconstructPath()
+                # back_path = backwardAnchorSearch.reconstructPath()
+                # # print(len(front_path), len(back_path)) 
+                # back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
+                # path = front_path + back_path_f_oriented
 
-    #             completed = True
-    #             break
+                completed = True
+                break
 
-    #         if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
-    #             # Check if BOTH have now failed
-    #             if status == "FINISHED_EARLY":
-    #                 print("Front finished first")
-    #             else:
-    #                 print("Back Finished First")
-    #             #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
-    #             print("Did not Converge: One side finished and did not meet")
-    #             completed = True
-    #             break 
-    #         if status == "FAILED" or status2 == "FAILED":
-    #             # Check if BOTH have now failed
-    #             #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
-    #             print("Did not Converge: Search space exhausted on both sides.")
-    #             completed = True
-    #             break
-    #         step_counter += 1
+            if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
+                # Check if BOTH have now failed
+                if status == "FINISHED_EARLY":
+                    print("Front finished first")
+                else:
+                    print("Back Finished First")
+                #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
+                print("Did not Converge: One side finished and did not meet")
+                completed = True
+                break 
+            if status == "FAILED" or status2 == "FAILED":
+                # Check if BOTH have now failed
+                #if frontAnchorSearch.heap.length() == 0 and backwardAnchorSearch.heap.length() == 0:
+                print("Did not Converge: Search space exhausted on both sides.")
+                completed = True
+                break
+            step_counter += 1
 
-    #     if withLearning:
-    #         nn_costs = []
-    #         optimal_costs = []
-    #         optimizer.zero_grad()
-    #         for encoded_state in path:
-    #             nn_value = nn.inference(frontAnchorSearch.game.decodeMap(encoded_state), frontAnchorSearch.game.target, frontAnchorSearch.game.goal_map)
-    #             optimal_value = frontAnchorSearch.game.evaluateBoard((frontAnchorSearch.game.decodeMap(encoded_state)))
-    #             nn_costs.append(nn_value)
-    #             optimal_costs.append(optimal_value)
+        if withLearning:
+            nn_costs = []
+            optimal_costs = []
+            optimizer.zero_grad()
+            for encoded_state in path:
+                nn_value = nn.inference(frontAnchorSearch.game.decodeMap(encoded_state), frontAnchorSearch.game.target, frontAnchorSearch.game.goal_map)
+                optimal_value = frontAnchorSearch.game.evaluateBoard((frontAnchorSearch.game.decodeMap(encoded_state)))
+                nn_costs.append(nn_value)
+                optimal_costs.append(optimal_value)
                 
-    #         loss = criterion(torch.tensor(nn_costs, requires_grad=True, device=my_device), torch.tensor(optimal_costs, requires_grad=True,device=my_device))
-    #         loss.backward()
-    #         optimizer.step()
+            loss = criterion(torch.tensor(nn_costs, requires_grad=True, device=my_device), torch.tensor(optimal_costs, requires_grad=True,device=my_device))
+            loss.backward()
+            optimizer.step()
 
-    #     frontAnchorSearch = SearchFrontier(states[state], False)
-    #     backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True)
+        frontAnchorSearch = SearchFrontier(states[state], False)
+        backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True)
 
     ## Evaluation function to see how the model does
     if withLearning:
@@ -448,6 +488,14 @@ def biBaseAnchorSearch(states ,forward_puzzle, backwardPuzzle, withLearning):
         pygame.quit()
 
 def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
+    """
+    Manual step-by-step GUI execution of Bidirectional Anchor Search.
+    
+    Args:
+        forward_puzzle (np.ndarray): Forward puzzle board.
+        backwardPuzzle (np.ndarray): Backward puzzle board.
+        withLearning (bool): Whether to use neural network learning for heuristics.
+    """
     
     frontAnchorSearch = SearchFrontier(forward_puzzle, False)
     backwardAnchorSearch = SearchFrontier(backwardPuzzle, True)
@@ -606,6 +654,15 @@ def biBaseAnchorSearchStep(forward_puzzle, backwardPuzzle, withLearning):
     pygame.quit()
 
 def biBaseRun(states, with_noise, forwardAStar, backwardAStar):
+    """
+    Standard bidirectional A* search.
+    
+    Args:
+        states (list): List of initial game states.
+        with_noise (bool): Whether to add noise to the heuristic.
+        forwardAStar (Astar): Forward search object.
+        backwardAStar (Astar): Backward search object.
+    """
     total = 0
     csv_file = open("search_results.csv", "a")
     results = []
@@ -709,6 +766,9 @@ def biBaseRun(states, with_noise, forwardAStar, backwardAStar):
 
 
 def biBaseRunGuarenteed():
+    """
+    Bidirectional A* search with guaranteed optimality using the MM algorithm.
+    """
     start_time = time.time()
     completed = False
     converged = False
@@ -808,6 +868,9 @@ def biBaseRunGuarenteed():
     pygame.quit()
 
 def bi_neural_run():
+    """
+    Bidirectional search using neural network heuristics.
+    """
 
     start_time = time.time()
     completed = False
@@ -851,6 +914,12 @@ def bi_neural_run():
             i += 1
 
 def neural_run():
+    """
+    Standard A* search using neural network heuristics.
+    
+    Returns:
+        tuple: (nn_costs, optimal_costs) for loss calculation.
+    """
     start_time = time.time()
     completed = False
     end_Map = None
@@ -881,6 +950,12 @@ def neural_run():
 
 
 def baseWithLearning(states):
+    """
+    Standard A* search with online learning from neural network heuristics.
+    
+    Args:
+        states (list): List of initial game states.
+    """
     nn = NN(10)
     criterion, optimizer = nn.initialize_cr_opt()
     if "finalSok3" in os.listdir("."):
@@ -898,6 +973,12 @@ def baseWithLearning(states):
         backwardAStar = Astar(backward_puzzle, "Sokoban", True)
     
 def biBaseWithLearning(games):
+    """
+    Bidirectional search with online learning from neural network heuristics.
+    
+    Args:
+        games (list): List of initial game states.
+    """
 
     nn = NN(10)
     forwardAStar.nn = nn
@@ -919,6 +1000,13 @@ def biBaseWithLearning(games):
 
 
 def bidirectionalAutoRun(running, is_completed):
+    """
+    Automated GUI execution of bidirectional search.
+    
+    Args:
+        running (bool): Flag indicating if the game is running.
+        is_completed (bool): Flag indicating if the search is completed.
+    """
     current_forward_map = forwardAStar.puzzle
     current_backward_map = backwardAStar.puzzle
     isForward = True
@@ -975,6 +1063,13 @@ def bidirectionalAutoRun(running, is_completed):
 
 
 def bidirectionalStepRun(running, is_completed):
+    """
+    Manual step-by-step GUI execution of bidirectional search.
+    
+    Args:
+        running (bool): Flag indicating if the game is running.
+        is_completed (bool): Flag indicating if the search is completed.
+    """
     current_forward_map = forwardAStar.puzzle
     current_backward_map = backwardAStar.puzzle
     isForward = True

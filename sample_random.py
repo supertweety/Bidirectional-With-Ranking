@@ -10,6 +10,12 @@ UPPER_BOUND = 1.0
 EXPECTED_VALUE = 5
 
 def samp_rand_norm():
+    """
+    Generate a random value using a Poisson distribution.
+    
+    Returns:
+        int: Randomly sampled value.
+    """
 
     ## integer poisson distribution
     return np.random.poisson(lam=EXPECTED_VALUE)

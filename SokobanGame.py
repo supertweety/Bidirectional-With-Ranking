@@ -4,7 +4,17 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 import random
 class SokobanGame:
+    """
+    Representation of the Sokoban game logic, supporting both forward and backward movements.
+    """
     def __init__(self, puzzle, isBackward = False):
+        """
+        Initialize the Sokoban game.
+        
+        Args:
+            puzzle (np.ndarray): The initial board layout.
+            isBackward (bool): Whether the game is for backward search.
+        """
         self.puzzle = puzzle
         self.target = list(zip(*(np.where(puzzle == 2))))
         # if isBackward:
@@ -43,6 +53,15 @@ class SokobanGame:
 
     @staticmethod
     def initializeBackwardPuzzle(board):
+        """
+        Create a backward puzzle by swapping targets and boxes.
+        
+        Args:
+            board (np.ndarray): Original board.
+            
+        Returns:
+            np.ndarray: Modified board for backward search.
+        """
         new_copy = copy.deepcopy(board)
         for row in range(len(board)):
             for col in range(len(board[0])):
@@ -54,6 +73,15 @@ class SokobanGame:
     
     # ## This is not on initialization of the backward search.
     def flipGame(self, board):
+        """
+        Flip the game board for bidirectional search visualization or logic.
+        
+        Args:
+            board (np.ndarray): The board to flip.
+            
+        Returns:
+            np.ndarray: Flipped board.
+        """
         new_copy = copy.deepcopy(board)
 
         for row in range(len(board)):
@@ -66,6 +94,16 @@ class SokobanGame:
         return new_copy
     
     def initalizeRandomStates(state, number):
+        """
+        Initialize a number of random states by moving the player to different empty locations.
+        
+        Args:
+            state (np.ndarray): The base state.
+            number (int): Number of random states to generate.
+            
+        Returns:
+            list: List of generated random states.
+        """
         avaiable_locations = list(zip(*np.where(state == 1)))
  
         player_loc = list(zip(*np.where(state == 3)))[0]
@@ -85,6 +123,16 @@ class SokobanGame:
         return states
     
     def compareGames(self, game1, game2):
+        """
+        Compare two game boards for equality based on box and player locations.
+        
+        Args:
+            game1 (np.ndarray): First game board.
+            game2 (np.ndarray): Second game board.
+            
+        Returns:
+            bool: True if boards are equivalent, False otherwise.
+        """
         boxes_1 = list(zip(*np.where(game1 == 4)))
         boxes_2 = list(zip(*np.where(game2 == 4)))
         player_1 = list(zip(*np.where(game1 == 3)))[0]
@@ -93,6 +141,15 @@ class SokobanGame:
         return statement
     
     def getStateHash(self, game):
+        """
+        Generate a unique hash for the game state based on player and box locations. No target box locations
+        
+        Args:
+            game (np.ndarray): The game board.
+            
+        Returns:
+            str: Hash string representing the state.
+        """
         boxes_1 = list(zip(*np.where(game == 4)))
         player_1 = list(zip(*np.where(game == 3)))[0]
         all_coords = [player_1] + boxes_1
@@ -100,6 +157,16 @@ class SokobanGame:
     
 
     def reconstruct_game(self, current_game, state_hash):
+        """
+        Reconstruct a game board from its state hash.
+        
+        Args:
+            current_game (np.ndarray): Base board layout (walls, etc.).
+            state_hash (str): Hash string representing player and box positions.
+            
+        Returns:
+            np.ndarray: Reconstructed game board.
+        """
         # 1. Start with a copy of the current board
         new_board = np.array(current_game).copy()
         
@@ -126,6 +193,16 @@ class SokobanGame:
 
 
     def successorInVisited(self,decodedMap, visited):
+        """
+        Check if a successor state has already been visited.
+        
+        Args:
+            decodedMap (np.ndarray): The successor state.
+            visited (set): Set of visited state hashes.
+            
+        Returns:
+            bool: True if visited, False otherwise.
+        """
         for vis in visited:
             decoded_vis = self.decodeMap(vis)
             if self.compareGames(decodedMap, decoded_vis):
@@ -134,6 +211,15 @@ class SokobanGame:
                         
     
     def hasDeadlock(self, board):
+        """
+        Check if any boxes are in a deadlock position (e.g., trapped in a corner).
+        
+        Args:
+            board (np.ndarray): The game board.
+            
+        Returns:
+            bool: True if a deadlock is detected, False otherwise.
+        """
         ### To Be Implemented
         box_locs = list(zip(*(np.where(board == 4))))
         surround = [(-1, 0), (0, 1), (1,0), (0,-1) ]
@@ -167,6 +253,15 @@ class SokobanGame:
 
     @staticmethod
     def decodeMap(map_string):
+        """
+        Decode a string representation of the map back into a 2D numpy array.
+        
+        Args:
+            map_string (str): Encoded map string.
+            
+        Returns:
+            np.ndarray: Decoded 10x10 map.
+        """
         int_list = [int(digit) for digit in map_string]
             
         # 2. Convert the list to a 1D NumPy array
@@ -180,17 +275,45 @@ class SokobanGame:
         return decoded_map
     @staticmethod
     def encodeMap(map):
+        """
+        Encode a 2D map array into a compact string representation.
+        
+        Args:
+            map (np.ndarray): The map array.
+            
+        Returns:
+            str: Encoded map string.
+        """
         numpyMap = np.array(map)
         flattened = np.ravel(numpyMap)
         board_string = "".join(str(x) for x in flattened)
         return board_string
     def isGoal(self, board):
+        """
+        Check if the current board configuration is a goal state.
+        
+        Args:
+            board (np.ndarray): The game board.
+            
+        Returns:
+            bool: True if all boxes are on targets, False otherwise.
+        """
         boxes = list(zip(*(np.where(board == 4))))
         for box_loc in boxes:
             if box_loc not in self.target:
                 return False
         return True
     def evaluateBoard(self, board, open_set_state=None):
+        """
+        Heuristic evaluation of the board using Manhattan distance matching.
+        
+        Args:
+            board (np.ndarray): Current game board.
+            open_set_state (np.ndarray, optional): State to compare against if meeting in the middle.
+            
+        Returns:
+            float: Heuristic cost estimate.
+        """
         block_locations = list(zip(*np.where(board == 4)))
         distances = 0
         targets = self.target
@@ -227,6 +350,15 @@ class SokobanGame:
 
 
     def availableStates(self, current_location: Tuple[int,int]):
+        """
+        Find available moves from the current player location.
+        
+        Args:
+            current_location (tuple): Player's (row, col) position.
+            
+        Returns:
+            list: List of available (direction, action_object) pairs.
+        """
         # do a grid of surrounding 8 check
         surrounding_blocks = [(-1, 0), (0, 1), (1,0), (0,-1) ]
         availableTuples = []
@@ -243,10 +375,29 @@ class SokobanGame:
                 tuple_map.append((tuple, self.pull_action_map[tuple]))
         return tuple_map
     def getPlayerLocation(self, board):
+        """
+        Locate the player on the board.
+        
+        Args:
+            board (np.ndarray): The game board.
+            
+        Returns:
+            tuple: Player's (row, col) position.
+        """
         loc = np.where(board == 3)
         player_location: Tuple[int,int] = (loc[0][0], loc[1][0])
         return player_location
     def move(self,current_loc, direction_and_movement):
+        """
+        Execute a move on the game board.
+        
+        Args:
+            current_loc (tuple): Current player position.
+            direction_and_movement (tuple): (direction, action_object) pair.
+            
+        Returns:
+            np.ndarray: New board state if valid, None otherwise.
+        """
         movement = direction_and_movement[1]
         # print(movement)
         #action_object = self.action_map.get(direction)
@@ -259,7 +410,17 @@ class SokobanGame:
         return new_board
 
     class Move:
+        """
+        Base class for player movement actions.
+        """
         def __init__(self, target_locations, isBackward):
+            """
+            Initialize a movement action.
+            
+            Args:
+                target_locations (list): List of goal target locations.
+                isBackward (bool): Whether the move is part of a backward search.
+            """
             self.target_locations = target_locations
             self.isBackward = isBackward
             pass
@@ -273,6 +434,9 @@ class SokobanGame:
                     board[target_loc[0]][target_loc[1]]= 2
             return board
     class Up(Move):
+        """
+        Action for moving the player up.
+        """
         def canMove(self, currentLocation, board) -> bool:
             new_loc = (currentLocation[0] -1, currentLocation[1])
             res = True
@@ -304,6 +468,9 @@ class SokobanGame:
             return res
 
     class Down(Move):
+        """
+        Action for moving the player down.
+        """
         def canMove(self, currentLocation, board):
             new_loc = (currentLocation[0] + 1, currentLocation[1])
             res = True
@@ -334,6 +501,9 @@ class SokobanGame:
             res = self.resetTargetSpots(new_copy)
             return res
     class Left(Move):
+        """
+        Action for moving the player left.
+        """
         def canMove(self, currentLocation, board):
             new_loc = (currentLocation[0], currentLocation[1] -1)
             res = True
@@ -365,6 +535,9 @@ class SokobanGame:
             return res
 
     class Right(Move):
+        """
+        Action for moving the player right.
+        """
         def canMove(self, currentLocation, board):
             new_loc = (currentLocation[0], currentLocation[1] + 1)
             res = True
@@ -397,7 +570,16 @@ class SokobanGame:
             res = self.resetTargetSpots(new_copy)
             return res
     class Pull:
+        """
+        Base class for pulling actions used in backward search.
+        """
         def __init__(self, target_locations):
+            """
+            Initialize a pulling action.
+            
+            Args:
+                target_locations (list): List of goal target locations.
+            """
             self.target_locations = target_locations
             pass
         def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
@@ -411,6 +593,9 @@ class SokobanGame:
             return board
         
     class PullUp(Pull):
+        """
+        Action for pulling a box up.
+        """
         def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
             ## first check if there is a block to pull
             res = True
@@ -437,6 +622,9 @@ class SokobanGame:
             return new_copy
         
     class PullDown(Pull):
+        """
+        Action for pulling a box down.
+        """
         def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
             block_location = (currentLocation[0] - 1, currentLocation[1])
             if board[block_location[0]][block_location[1]] != 4:
@@ -459,6 +647,9 @@ class SokobanGame:
             return new_copy
         
     class PullLeft(Pull):
+        """
+        Action for pulling a box left.
+        """
         def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
             block_location = (currentLocation[0], currentLocation[1] +1)
             if board[block_location[0]][block_location[1]] != 4:
@@ -481,6 +672,9 @@ class SokobanGame:
             return new_copy
         
     class PullRight(Pull):
+        """
+        Action for pulling a box right.
+        """
         def canPull(self, currentLocation, board): #bool to see if moving in that direction is possible
             block_location = (currentLocation[0], currentLocation[1] -1)
             if board[block_location[0]][block_location[1]] != 4:
