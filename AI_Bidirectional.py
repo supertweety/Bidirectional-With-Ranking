@@ -3,238 +3,401 @@ import heapq
 from typing import Tuple, Dict, List, Optional, Set
 from SokobanGame import SokobanGame
 
+
 class BidirectionalF2FSearch:
     """
     Implementation of Top-to-Top Bidirectional Search (TTBS) for Sokoban.
-    Based on the IJCAI 2020 paper by Kuroiwa and Fukunaga.
+    Based on the IJCAI 2020 paper:
+      "Front-to-Front Heuristic Search for Satisficing Classical Planning"
+      by Ryo Kuroiwa and Alex Fukunaga.
+
+    Algorithm Overview:
+    -------------------
+    TTBS is a satisficing bidirectional search with a front-to-front (F2F)
+    heuristic. Each side maintains an "anchor", which is the most recently
+    expanded node (Temporal Anchor strategy). Nodes are ranked by:
+
+        f(s) = g(s) + h(s, d*)
+
+    where d* is the opponent's current anchor and h is the F2F heuristic
+    (here: MWPM Manhattan distance between box positions).
+
+    When the opponent's anchor changes, stored f-scores may be stale.
+    TTBS handles this via lazy re-evaluation: when a node is popped from
+    the heap, if its stored target differs from the current anchor, it is
+    re-scored and re-inserted (the "TTBS re-evaluation" mechanism). This
+    avoids the full open-list re-sort needed by d-node retargeting (DNR).
+
+    Convergence is detected when a successor's box configuration matches
+    a state hash already in the opponent's closed set (O(1) lookup via a
+    precomputed box-key set maintained alongside each closed set).
+
+    State Representation (SokobanGame tile values):
+        0 = wall
+        1 = floor
+        2 = target/goal cell
+        3 = player
+        4 = box (or box-on-target in the backward puzzle)
+
+    Forward vs Backward:
+        - Forward game: boxes start scattered, goals are value-2 cells.
+        - Backward game: initializeBackwardPuzzle swaps 2<->4, so boxes
+          start on goal cells and the backward search "pulls" them off.
+        - flipGame converts between the two orientations so their box
+          hashes can be compared for intersection detection.
     """
-    def __init__(self, puzzle: np.ndarray, game_name: str = "Sokoban"):
+
+    def __init__(self, puzzle: np.ndarray, game_name: str = "Sokoban", nn=None):
         self.game_name = game_name
         self.puzzle = puzzle
-        
-        # Initialize games
+        self.nn = nn
+
+        # ── Game instances ─────────────────────────────────────────────
         self.forward_game = SokobanGame(puzzle, isBackward=False)
         backward_puzzle = self.forward_game.initializeBackwardPuzzle(puzzle)
         self.backward_game = SokobanGame(backward_puzzle, isBackward=True)
-        
-        # Search structures
-        # elements: list of (f_score, g_score, state_hash)
-        self.open_f = []
-        self.open_b = []
-        
-        # Maps to store g-values and parent pointers
+
+        # ── Open lists: min-heap of (f, neg_g, hash) ──────────────────
+        # neg_g breaks f-ties in favour of deeper (larger g) nodes.
+        self.open_f: List[Tuple[float, int, str]] = []
+        self.open_b: List[Tuple[float, int, str]] = []
+
+        # ── g-values: encoded_hash → cost from start/goal ─────────────
         self.g_f: Dict[str, int] = {}
         self.g_b: Dict[str, int] = {}
+
+        # ── Parent pointers for path reconstruction ────────────────────
         self.parent_f: Dict[str, Optional[str]] = {}
         self.parent_b: Dict[str, Optional[str]] = {}
-        
-        # To handle re-evaluation (TTBS specifics)
-        # Store the 'target' node used for the last f-score calculation
-        self.last_target_f: Dict[str, str] = {}
-        self.last_target_b: Dict[str, str] = {}
-        
-        # Best solution found so far
-        self.U = float('inf')
-        self.meeting_point: Optional[str] = None
-        
-        self.iteration = 0
 
-    def get_best_node(self, open_list: List, g_map: Dict[str, int]) -> Optional[str]:
-        """Returns the node with the minimum g-value in the open list."""
-        if not open_list:
-            return None
-        # In TTBS, the "top" node is often the one with the min h or g.
-        # The paper mentions using the node with the minimum g-value as the target.
-        best_node = None
-        min_g = float('inf')
-        for _, g, node_hash in open_list:
-            if g < min_g:
-                min_g = g
-                best_node = node_hash
-        return best_node
+        # ── Closed sets: encoded map hash → True ──────────────────────
+        self.closed_f: Set[str] = set()
+        self.closed_b: Set[str] = set()
 
-    def get_f_score(self, node_hash: str, g_val: int, target_node_hash: str, game: SokobanGame) -> float:
-        """Calculates the front-to-front f-score: f(s) = g(s) + h(s, d*)."""
-        node_map = game.decodeMap(node_hash)
-        target_map = game.decodeMap(target_node_hash)
-        # We need to flip the target_map if it's from the opposite search to align box/target positions
-        # However, SokobanGame.evaluateBoard(s, d*) already handles comparison if both are just box/player states.
-        # But wait, backward_game uses targets as boxes and vice versa.
-        # Let's align them: the heuristic should estimate moves to reach the configuration of the other frontier.
-        h_val = game.evaluateBoard(node_map, target_map)
-        return g_val + h_val
+        # ── Box-key closed sets for O(1) intersection checks ──────────
+        # Each entry is a canonical box-position string in the *forward*
+        # game's coordinate system.
+        self.bkey_closed_f: Set[str] = set()   # forward box keys
+        self.bkey_closed_b: Set[str] = set()   # backward box keys (flipped to fwd)
 
-    def init_search(self):
-        """Initializes the search frontiers."""
+        # Map from box-key → encoded hash (forward preferred per side)
+        self.bkey_to_hash_f: Dict[str, str] = {}
+        self.bkey_to_hash_b: Dict[str, str] = {}
+
+        # ── TTBS anchor: most recently expanded node on each side ──────
+        self.anchor_f: Optional[str] = None
+        self.anchor_b: Optional[str] = None
+
+        # ── Lazy re-evaluation: last anchor used to score each node ────
+        self.last_target_f: Dict[str, Optional[str]] = {}
+        self.last_target_b: Dict[str, Optional[str]] = {}
+
+        # ── Solution tracking ──────────────────────────────────────────
+        self.U: float = float('inf')
+        self.meeting_fwd: Optional[str] = None
+        self.meeting_bwd: Optional[str] = None
+
+        self.iteration: int = 0
+        self._initialized: bool = False
+
+    # ──────────────────────────────────────────────────────────────────
+    # Helpers
+    # ──────────────────────────────────────────────────────────────────
+
+    def _box_key(self, board: np.ndarray) -> str:
+        """
+        Canonical key based solely on sorted box positions.
+        Board must be in the *forward* game's coordinate system
+        (i.e., boxes are value 4, targets are value 2).
+        """
+        locs = sorted(zip(*np.where(board == 4)))
+        return str(locs)
+
+    def _f_score(self, node_hash: str, g: int, opp_anchor_hash: Optional[str],
+                 active_game: SokobanGame, opp_game: SokobanGame) -> float:
+        """
+        f(s) = g(s) + h(s, d*)  — front-to-front cost estimate.
+
+        h is the MWPM-Manhattan distance between the box positions of s and
+        the opponent anchor d*, where d* is first flipped into the active
+        game's coordinate system.
+        """
+        node_map = active_game.decodeMap(node_hash)
+        if opp_anchor_hash is None:
+            return float(g + active_game.evaluateBoard(node_map))
+        opp_anchor_map = opp_game.decodeMap(opp_anchor_hash)
+        anchor_in_active = active_game.flipGame(opp_anchor_map)
+        h = active_game.evaluateBoard(node_map, anchor_in_active)
+        return float(g + h)
+
+    def _f_score_nn(self, node_hash: str, g: int, opp_anchor_hash: Optional[str],
+                 active_game: SokobanGame, opp_game: SokobanGame) -> float:
+        """
+        f(s) = g(s) + h(s, d*)  — front-to-front cost estimate.
+
+        h is the MWPM-Manhattan distance between the box positions of s and
+        the opponent anchor d*, where d* is first flipped into the active
+        game's coordinate system.
+        """
+        node_map = active_game.decodeMap(node_hash)
+        if opp_anchor_hash is None:
+            return float(g + active_game.evaluateBoard(node_map))
+        opp_anchor_map = opp_game.decodeMap(opp_anchor_hash)
+        anchor_in_active = active_game.flipGame(opp_anchor_map)
+        h = active_game.evaluateBoard(node_map, anchor_in_active)
+        return float(g + h)
+
+    def _push(self, heap: List, f: float, g: int, h: str) -> None:
+        heapq.heappush(heap, (f, -g, h))   # neg_g: deeper = smaller = better tie
+
+    def _pop(self, heap: List) -> Tuple[float, int, str]:
+        f, neg_g, h = heapq.heappop(heap)
+        return f, -neg_g, h
+
+    # ──────────────────────────────────────────────────────────────────
+    # Initialisation
+    # ──────────────────────────────────────────────────────────────────
+
+    def init_search(self) -> None:
+        """Initialise both search frontiers."""
         start_hash = self.forward_game.encodeMap(self.puzzle)
-        goal_hash = self.backward_game.encodeMap(self.backward_game.puzzle)
-        
+        goal_hash  = self.backward_game.encodeMap(self.backward_game.puzzle)
+
         self.g_f[start_hash] = 0
-        self.g_b[goal_hash] = 0
+        self.g_b[goal_hash]  = 0
         self.parent_f[start_hash] = None
-        self.parent_b[goal_hash] = None
-        
-        # Initial f-score uses the other side's initial node as target
-        f_start = self.get_f_score(start_hash, 0, goal_hash, self.forward_game)
-        f_goal = self.get_f_score(goal_hash, 0, start_hash, self.backward_game)
-        
-        heapq.heappush(self.open_f, (f_start, 0, start_hash))
-        heapq.heappush(self.open_b, (f_goal, 0, goal_hash))
-        
+        self.parent_b[goal_hash]  = None
+
+        # Anchors are initialised to start/goal
+        self.anchor_f = start_hash
+        self.anchor_b = goal_hash
+
+        # Initial f-scores with each side's start as anchor for the other
+        f_start = self._f_score(start_hash, 0, goal_hash,
+                                self.forward_game, self.backward_game)
+        f_goal  = self._f_score(goal_hash, 0, start_hash,
+                                self.backward_game, self.forward_game)
+
+        self._push(self.open_f, f_start, 0, start_hash)
+        self._push(self.open_b, f_goal,  0, goal_hash)
+
         self.last_target_f[start_hash] = goal_hash
-        self.last_target_b[goal_hash] = start_hash
+        self.last_target_b[goal_hash]  = start_hash
 
-    def step(self) -> Tuple[bool, Optional[List[str]]]:
-        """Performs one expansion step (alternating between forward and backward)."""
-        if not self.open_f or not self.open_b:
-            return False, None
-            
-        # Select side with smaller open list
-        if len(self.open_f) <= len(self.open_b):
-            is_forward = True
-            open_list = self.open_f
-            opp_open = self.open_b
-            g_map = self.g_f
-            opp_g_map = self.g_b
-            parent_map = self.parent_f
-            last_target_map = self.last_target_f
-            game = self.forward_game
-            opp_game = self.backward_game
+        self._initialized = True
+
+    # ──────────────────────────────────────────────────────────────────
+    # Core expansion step
+    # ──────────────────────────────────────────────────────────────────
+
+    def _expand(self, is_forward: bool) -> Tuple[bool, Optional[List[str]]]:
+        """
+        One TTBS expansion on the chosen side.
+        Returns (solution_found, path_or_None).
+        """
+        if is_forward:
+            heap         = self.open_f
+            g_map        = self.g_f
+            parent_map   = self.parent_f
+            closed       = self.closed_f
+            bkey_closed  = self.bkey_closed_f
+            bkey_opp     = self.bkey_closed_b
+            bkey_map_self= self.bkey_to_hash_f
+            bkey_map_opp = self.bkey_to_hash_b
+            last_tgt     = self.last_target_f
+            game         = self.forward_game
+            opp_game     = self.backward_game
+            opp_g_map    = self.g_b
+            cur_anch     = 'anchor_f'
+            opp_anch     = 'anchor_b'
         else:
-            is_forward = False
-            open_list = self.open_b
-            opp_open = self.open_f
-            g_map = self.g_b
-            opp_g_map = self.g_f
-            parent_map = self.parent_b
-            last_target_map = self.last_target_b
-            game = self.backward_game
-            opp_game = self.forward_game
-            
-        # TTBS Re-evaluation Mechanism
-        best_opp_node = self.get_best_node(opp_open, opp_g_map)
-        if not best_opp_node:
+            heap         = self.open_b
+            g_map        = self.g_b
+            parent_map   = self.parent_b
+            closed       = self.closed_b
+            bkey_closed  = self.bkey_closed_b
+            bkey_opp     = self.bkey_closed_f
+            bkey_map_self= self.bkey_to_hash_b
+            bkey_map_opp = self.bkey_to_hash_f
+            last_tgt     = self.last_target_b
+            game         = self.backward_game
+            opp_game     = self.forward_game
+            opp_g_map    = self.g_f
+            cur_anch     = 'anchor_b'
+            opp_anch     = 'anchor_f'
+
+        opp_anchor = getattr(self, opp_anch)
+
+        if not heap:
             return False, None
 
+        # ── TTBS Lazy Re-evaluation ────────────────────────────────────
         while True:
-            if not open_list:
+            if not heap:
                 return False, None
-                
-            f, g, u_hash = heapq.heappop(open_list)
-            
-            # If U is already better than the current f, we might prune, but TTBS is satisficing
-            # In satisficing search, we usually just continue until they meet.
-            
-            # Re-evaluation check
-            if last_target_map.get(u_hash) != best_opp_node:
-                new_f = self.get_f_score(u_hash, g, best_opp_node, game)
-                last_target_map[u_hash] = best_opp_node
-                heapq.heappush(open_list, (new_f, g, u_hash))
-                # Update best_opp_node in case pop/push cycle is needed? 
-                # No, just re-insert and pick the new min.
-                f, g, u_hash = heapq.heappop(open_list)
-                if last_target_map.get(u_hash) != best_opp_node:
-                    # Still not matching? Re-push and try again
-                    heapq.heappush(open_list, (f, g, u_hash))
-                    continue
-            
-            # If we reached here, u_hash is evaluated against the current best_opp_node
+
+            f, g, u_hash = self._pop(heap)
+
+            # Skip already-closed nodes
+            if u_hash in closed:
+                continue
+
+            # Skip superseded g-values (another path improved this node)
+            if g_map.get(u_hash, float('inf')) < g:
+                continue
+
+            # Lazy re-evaluation: anchor changed since this f-score was set
+            if last_tgt.get(u_hash) != opp_anchor:
+                if self.nn is not None:
+                    new_f = self._f_score_nn(u_hash, g, opp_anchor, game, opp_game)
+                else:
+                    new_f = self._f_score(u_hash, g, opp_anchor, game, opp_game)
+                last_tgt[u_hash] = opp_anchor
+                self._push(heap, new_f, g, u_hash)
+                continue
+
             break
-            
-        # Expand u
-        u_map = game.decodeMap(u_hash)
+
+        # ── Close node ────────────────────────────────────────────────
+        closed.add(u_hash)
+
+        # Register box-key for this side
+        u_map    = game.decodeMap(u_hash)
+        u_fwd    = u_map if is_forward else game.flipGame(u_map)
+        bk       = self._box_key(u_fwd)
+        bkey_closed.add(bk)
+        bkey_map_self[bk] = u_hash
+
+        # Update temporal anchor
+        setattr(self, cur_anch, u_hash)
+
+        # ── Expand successors ─────────────────────────────────────────
+        game.puzzle = u_map   # required by availableStates
         player_loc = game.getPlayerLocation(u_map)
-        
-        for direction, action in game.availableStates(player_loc):
+
+        for _dir, action in game.availableStates(player_loc):
             v_map = action.moveAndUpdateBoard(player_loc, u_map)
             if v_map is None:
                 continue
-                
-            v_hash = game.encodeMap(v_map)
-            new_g = g + 1
-            
-            if v_hash not in g_map or new_g < g_map[v_hash]:
-                g_map[v_hash] = new_g
-                parent_map[v_hash] = u_hash
-                
-                # Check for intersection
-                # Note: In bidirectional Sokoban, states are aligned if their box positions match.
-                # The backward_game's box positions correspond to the forward_game's target fulfillment.
-                # However, SokobanGame uses 4 for boxes on both.
-                # We need to flip back if we want to compare with the other side.
-                # Actually, the implementation of compareGames/getStateHash should be consistent.
-                v_hash_for_opp = v_hash
-                if is_forward:
-                    # forward uses 4 for boxes. backward uses 4 for boxes (which are targets in forward).
-                    # To compare, we need to know if the configuration of boxes in forward matches the reconfiguration of boxes in backward.
-                    # SokobanGame.flipGame helps align them.
-                    v_flipped = game.flipGame(v_map)
-                    v_hash_for_opp = game.encodeMap(v_flipped)
-                else:
-                    # backward to forward align
-                    v_flipped = game.flipGame(v_map)
-                    v_hash_for_opp = game.encodeMap(v_flipped)
 
-                if v_hash_for_opp in opp_g_map:
-                    # Intersection found!
-                    current_cost = new_g + opp_g_map[v_hash_for_opp]
-                    if current_cost < self.U:
-                        self.U = current_cost
-                        self.meeting_point = v_hash if is_forward else v_hash_for_opp
-                        # For simplicity, return on first intersection in satisficing search
-                        return True, self.reconstruct_path()
-                
-                # Push to open list
-                v_f = self.get_f_score(v_hash, new_g, best_opp_node, game)
-                heapq.heappush(open_list, (v_f, new_g, v_hash))
-                last_target_map[v_hash] = best_opp_node
-                
-        self.iteration += 1
+            # Deadlock pruning for forward direction only
+            if is_forward and game.hasDeadlock(v_map):
+                continue
+
+            v_hash = game.encodeMap(v_map)
+            new_g  = g + 1
+
+            if v_hash in closed:
+                continue
+            if new_g >= g_map.get(v_hash, float('inf')):
+                continue
+
+            # Record path
+            g_map[v_hash]      = new_g
+            parent_map[v_hash] = u_hash
+            last_tgt[v_hash]   = opp_anchor
+
+            # ── Intersection check (O(1)) ─────────────────────────────
+            v_fwd = v_map if is_forward else game.flipGame(v_map)
+            bk_v  = self._box_key(v_fwd)
+
+            if bk_v in bkey_opp:
+                opp_hash = bkey_map_opp[bk_v]
+                opp_g    = opp_g_map.get(opp_hash, float('inf'))
+                cost     = new_g + opp_g
+                if cost < self.U:
+                    self.U = cost
+                    if is_forward:
+                        self.meeting_fwd = v_hash
+                        self.meeting_bwd = opp_hash
+                    else:
+                        self.meeting_bwd = v_hash
+                        self.meeting_fwd = opp_hash
+                # Satisficing: return immediately on first intersection
+                return True, self.reconstruct_path()
+
+            # ── Push successor ────────────────────────────────────────
+            v_f = self._f_score(v_hash, new_g, opp_anchor, game, opp_game)
+            self._push(heap, v_f, new_g, v_hash)
+
         return False, None
 
-    def reconstruct_path(self) -> List[str]:
-        """Reconstructs the path from start to goal through the meeting point."""
-        if not self.meeting_point:
-            return []
-            
-        # Path from start to meeting point (forward)
-        path_f = []
-        curr = self.meeting_point
-        # If the meeting point was found by backward search, it's already flipped for comparison.
-        # But meeting_point logic above might need care.
-        # Let's ensure meeting_point is always a forward_game hash.
-        
-        # If meeting point is in g_f, we can trace back
-        if self.meeting_point in self.g_f:
-            curr = self.meeting_point
-            while curr is not None:
-                path_f.append(curr)
-                curr = self.parent_f.get(curr)
-            path_f.reverse()
+    # ──────────────────────────────────────────────────────────────────
+    # Step
+    # ──────────────────────────────────────────────────────────────────
+
+    def step(self) -> Tuple[bool, Optional[List[str]]]:
+        """
+        One alternating expansion step.
+        Picks the side with the smaller open list (balancing strategy).
+
+        Returns (solution_found, path_or_None).
+        """
+        if not self._initialized:
+            self.init_search()
+
+        if not self.open_f and not self.open_b:
+            return False, None
+
+        if not self.open_b or (self.open_f and len(self.open_f) <= len(self.open_b)):
+            found, path = self._expand(is_forward=True)
         else:
-            # Should not happen with current logic
-            pass
-            
-        # Path from meeting point to goal (backward)
-        path_b = []
-        # We need the flipped version of the meeting point in backward_game's space
-        meeting_flipped = self.backward_game.encodeMap(self.forward_game.flipGame(self.forward_game.decodeMap(self.meeting_point)))
-        curr = meeting_flipped
+            found, path = self._expand(is_forward=False)
+
+        self.iteration += 1
+        return found, path
+
+    # ──────────────────────────────────────────────────────────────────
+    # Path reconstruction
+    # ──────────────────────────────────────────────────────────────────
+
+    def reconstruct_path(self) -> List[str]:
+        """
+        Reconstruct start → goal as a list of forward-game encoded maps.
+
+        Forward half:  trace parent_f from meeting_fwd → start, then reverse.
+        Backward half: trace parent_b from meeting_bwd → goal, flip each
+                       state into forward coordinate system.
+        """
+        if self.meeting_fwd is None:
+            return []
+
+        # Forward segment: meeting_fwd → start (reversed)
+        path_f: List[str] = []
+        curr = self.meeting_fwd
         while curr is not None:
-            # flip back to forward space for the final path
-            decoded = self.backward_game.decodeMap(curr)
-            flipped_back = self.forward_game.flipGame(decoded)
-            path_b.append(self.forward_game.encodeMap(flipped_back))
+            path_f.append(curr)
+            curr = self.parent_f.get(curr)
+        path_f.reverse()   # start → meeting_fwd
+
+        # Backward segment: parent of meeting_bwd → goal (already fwd-flipped)
+        path_b: List[str] = []
+        curr = self.parent_b.get(self.meeting_bwd)   # skip meeting (already in path_f)
+        while curr is not None:
+            bwd_map = self.backward_game.decodeMap(curr)
+            fwd_map = self.forward_game.flipGame(bwd_map)
+            path_b.append(self.forward_game.encodeMap(fwd_map))
             curr = self.parent_b.get(curr)
-            
-        # Merge (path_b[0] is meeting point, same as path_f[-1])
-        return path_f + path_b[1:]
+
+        return path_f + path_b
+
+    # ──────────────────────────────────────────────────────────────────
+    # Public search interface
+    # ──────────────────────────────────────────────────────────────────
 
     def search(self, max_iterations: int = 10000) -> Optional[List[str]]:
-        """Executes the full search."""
+        """
+        Execute TTBS bidirectional search.
+
+        Args:
+            max_iterations: Expansion budget.
+
+        Returns:
+            List of forward-encoded map strings (start → goal), or None.
+        """
         self.init_search()
         for _ in range(max_iterations):
-            success, path = self.step()
-            if success:
+            found, path = self.step()
+            if found:
                 return path
         return None

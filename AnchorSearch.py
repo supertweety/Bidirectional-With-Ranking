@@ -61,7 +61,6 @@ class SearchFrontier:
             str: Status of the step ("SUCCESS", "FAILED", "FINISHED_EARLY", or "CONTINUE").
         """
         if not self.open:
-            print(self.game.encodeMap(self.anchor))
             self.valid_solution = False
             return "FAILED" # Search failed
 
@@ -112,7 +111,6 @@ class SearchFrontier:
             z = self.open_closed_set.intersection(other_front.open_closed_set)
             
             arbitrary_item = self.game.reconstruct_game(self.anchor, z.pop())
-            print(arbitrary_item)
             self.rendezvous = arbitrary_item
             other_front.rendezvous = other_front.game.flipGame(arbitrary_item)
             # print(self.game.encodeMap(other_front.game.flipGame(best_candidate)))

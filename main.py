@@ -14,6 +14,7 @@ from SokobanGame import SokobanGame
 import torch
 import csv
 from AnchorSearch import SearchFrontier
+from AI_Bidirectional import BidirectionalF2FSearch
 from typing import Literal
 import json
 
@@ -65,6 +66,14 @@ def parse_arguments():
         choices=["on", "off"],
         help="Enable neural network learning"
     )
+
+    search_group.add_argument(
+        '--with_training',
+        type=str,
+        default="no",
+        choices=["yes", "no"],
+        help="Enable neural network training"
+    )
     search_group.add_argument(
         "--front_to_front",
         type=str,
@@ -78,6 +87,13 @@ def parse_arguments():
         default="no",
         choices=["yes", "no"],
         help="Use Anchor Search"
+    )
+    search_group.add_argument(
+        "--ttbs",
+        type=str,
+        default="no",
+        choices=["yes", "no"],
+        help="Use Top-to-Top Bidirectional Search (TTBS) from IJCAI 2020"
     )
 
     # --- Experiment & Environment ---
@@ -366,6 +382,113 @@ def biBaseFF(states, with_noise, forwardAStar, backwardAStar):
     pygame.quit()
 
 
+def biBaseTTBS(states, withLearning, withTraining):
+    """
+    Run Top-to-Top Bidirectional Search (TTBS) over all states.
+
+    Mirrors biBaseAnchorSearch: iterates through each puzzle state,
+    runs BidirectionalF2FSearch.search(), and reports results per puzzle.
+
+    Args:
+        states (list): List of puzzle boards (np.ndarray).
+    """
+    print("=== TTBS (Top-to-Top Bidirectional Search) ===")
+   
+    nn = None
+    if withLearning: 
+        nn = NN(10)
+        my_device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        print(f"Current Device is: {my_device}")
+        criterion, optimizer = nn.initialize_cr_opt()
+        print("--- Pre Learning Scores --- ")
+    if withTraining:
+        
+        for state_idx in range(len(states)):
+            puzzle = states[state_idx]
+            searcher = BidirectionalF2FSearch(puzzle, None)
+
+            start_time = time.time()
+            path = searcher.search(max_iterations=50000)
+            elapsed = time.time() - start_time
+
+            if path:
+                result = "SUCCESS"
+                path_len = len(path)
+                print(
+                    f"[{state_idx:>3d}] SUCCESS  "
+                    f"path={path_len:>4d}  "
+                    f"iters={searcher.iteration:>6d}  "
+                    f"time={elapsed:.3f}s"
+                )
+            else:
+                result = "FAILED"
+                path_len = 0
+                print(
+                    f"[{state_idx:>3d}] FAILED   "
+                    f"iters={searcher.iteration:>6d}  "
+                    f"time={elapsed:.3f}s"
+                )
+
+            if withLearning:
+                nn_costs = []
+                optimal_costs = []
+                optimizer.zero_grad()
+                for encoded_state in path:
+                    nn_value = nn.inference(searcher.forward_game.decodeMap(encoded_state), searcher.forward_game.target, searcher.forward_game.goal_map)
+                    optimal_value = searcher.forward_game.evaluateBoard((searcher.forward_game.decodeMap(encoded_state)))
+                    nn_costs.append(nn_value)
+                    optimal_costs.append(optimal_value)
+                output_nn_value_tensor = torch.tensor(nn_costs, requires_grad=True,device=my_device, dtype=torch.float32)
+                output_optimal_value_tensor = torch.tensor(optimal_costs, requires_grad=True,device=my_device, dtype=torch.float32)
+                loss = criterion(output_nn_value_tensor, output_optimal_value_tensor)
+                loss.backward()
+                optimizer.step()
+
+    if withLearning and withTraining:
+        torch.save(nn.state_dict(), "model_weights.pth")
+    csv_file = open("ttbs_results.csv", "a")
+    writer   = csv.writer(csv_file, delimiter='\t')
+    writer.writerow(["puzzle_index", "iterations", "path_length", "time_s", "result"])
+
+    if os.path.exists("model_weights.pth"):
+        state_dict = torch.load("model_weights.pth", weights_only=True)
+        nn.load_state_dict(state_dict)
+    print("--- Testing with Learning ---")
+    for state_idx in range(len(states)):
+        puzzle = states[state_idx]
+        searcher = BidirectionalF2FSearch(puzzle, nn)
+
+        start_time = time.time()
+        path = searcher.search(max_iterations=50000)
+        elapsed = time.time() - start_time
+
+        if path:
+            result = "SUCCESS"
+            path_len = len(path)
+            print(
+                f"[{state_idx:>3d}] SUCCESS  "
+                f"path={path_len:>4d}  "
+                f"iters={searcher.iteration:>6d}  "
+                f"time={elapsed:.3f}s"
+            )
+        else:
+            result = "FAILED"
+            path_len = 0
+            print(
+                f"[{state_idx:>3d}] FAILED   "
+                f"iters={searcher.iteration:>6d}  "
+                f"time={elapsed:.3f}s"
+            )
+
+        writer.writerow([state_idx, searcher.iteration, path_len,
+                        f"{elapsed:.4f}", result])
+
+    csv_file.close()
+    print("Results written to ttbs_results.csv")
+
+
+##
+
 def biBaseAnchorSearch(states, forward_puzzle, backwardPuzzle, withLearning):
     """
     Bidirectional Anchor Search.
@@ -381,9 +504,11 @@ def biBaseAnchorSearch(states, forward_puzzle, backwardPuzzle, withLearning):
     
     backwardAnchorSearch = SearchFrontier(backwardPuzzle, True)
     if withLearning:
-        state_dict = torch.load("model_weights.pth", weights_only=True)
+        
         nn = NN(10)
-        nn.load_state_dict(state_dict)
+        if os.path.exists("model_weights.pth"):
+            state_dict = torch.load("model_weights.pth", weights_only=True)
+            nn.load_state_dict(state_dict)
         my_device = "cuda:0" if torch.cuda.is_available() else "cpu"
         print(f"Current Device is: {my_device}")
         criterion, optimizer = nn.initialize_cr_opt()
@@ -1260,7 +1385,10 @@ if __name__ == "__main__":
                 biBaseFF(states, args.with_noise, forwardAStar, backwardAStar)
                 sys.exit(0)
             if args.anchor_search == "yes":
-                biBaseAnchorSearch(states, only_one_state, backward_puzzle, args.with_learning=="on")
+                biBaseAnchorSearch(states, only_one_state, backward_puzzle, args.with_learning=="on", args.with_training=="yes")
+                sys.exit(0)
+            if args.ttbs == "yes":
+                biBaseTTBS(states, args.with_learning=="on", args.with_training=="yes")
                 sys.exit(0)
             biBaseRun(states, args.with_noise, forwardAStar, backwardAStar)
             sys.exit(0)

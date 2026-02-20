@@ -414,4 +414,4 @@ class NN(nn.Module):
         
         categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
         output = self(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5))
-        return output
+        return output.item()
