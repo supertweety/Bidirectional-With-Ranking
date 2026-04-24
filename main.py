@@ -602,7 +602,8 @@ def biBaseAnchorSearch(states, forward_puzzle, backwardPuzzle, withLearning, wit
                     optimal_costs.append(optimal_value)
                 nn_costs_tensor = torch.stack(nn_costs).to(my_device)
                 optimal_costs_tensor = torch.tensor(optimal_costs, requires_grad=True, device=my_device, dtype=torch.float32)
-                
+                nn_costs_tensor = nn_costs_tensor.squeeze()  # Remove extra dimensions if needed
+
                 loss = criterion(nn_costs_tensor, optimal_costs_tensor)
                 loss.backward()
                 print(f"Epoch {state}, Loss: {loss:.4f}")
