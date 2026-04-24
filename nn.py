@@ -343,7 +343,7 @@ class NN(nn.Module):
         d2 = self.relu(self.dense2(f2))
         op2 = self.op2(d2) # Output 2 (1 output, no final activation in original Keras)
 
-        return self.relu(op2)
+        return op2
     def initialize_cr_opt(self):
         """
         Initialize loss criterion and optimizer.
