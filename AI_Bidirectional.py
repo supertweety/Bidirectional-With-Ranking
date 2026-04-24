@@ -47,8 +47,8 @@ class BidirectionalF2FSearch:
           hashes can be compared for intersection detection.
     """
 
-    def __init__(self, puzzle: np.ndarray, game_name: str = "Sokoban", nn=None):
-        self.game_name = game_name
+    def __init__(self, puzzle: np.ndarray, nn=None):
+        self.game_name = "Sokoban"
         self.puzzle = puzzle
         self.nn = nn
 

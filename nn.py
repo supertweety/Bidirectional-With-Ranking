@@ -342,7 +342,7 @@ class NN(nn.Module):
         d2 = self.relu(self.dense2(f2))
         op2 = self.op2(d2) # Output 2 (1 output, no final activation in original Keras)
 
-        return op2
+        return self.relu(op2)
     def initialize_cr_opt(self):
         """
         Initialize loss criterion and optimizer.
@@ -362,7 +362,7 @@ class NN(nn.Module):
         Convert a 3D tensor to a categorical one-hot representation.
         
         Args:
-            x3d (torch.Tensor): Input tensor.
+            x3d (torch.Tensor): Input tensor. (10,10)
             Tar (list): Target locations.
             dim1 (int): Height.
             dim2 (int): Width.
@@ -371,13 +371,13 @@ class NN(nn.Module):
             torch.Tensor: Categorical tensor.
         """
         find_box_pos = np.where(x3d == 4)
-        pos=list(zip(find_box_pos[0], find_box_pos[1]))
-        x1d = x3d.ravel()
-
-        y1d = self.to_categorical( x1d, 5 )
-
-        y4d = y1d.reshape( [dim1, dim2, 5])
-
+        pos=list(zip(*(find_box_pos))) ## (3,2) list of positions of the boxes
+        x1d = x3d.ravel() ## (100,) flatten the 3d tensor to 1d
+        
+        y1d = self.to_categorical( x1d, 5 ) ## (100, 5 )
+        
+        y4d = y1d.reshape( [dim1, dim2, 5]) ## (10, 10, 5)
+   
         for i in range(len(pos)):
             y4d[Tar[i][0]][Tar[i][1]][2] = 1
             y4d[pos[i][0]][pos[i][1]][2] = 1
@@ -391,7 +391,7 @@ class NN(nn.Module):
         
         Args:
             state (np.ndarray): Current state.
-            box_tar (list): Target locations.
+            box_tar (list): Target locations. (3,2) So 3 targets with each being (x,y)
             goal_state (np.ndarray): Goal state.
             
         Returns:
@@ -409,9 +409,12 @@ class NN(nn.Module):
         if len(box_on_T) == len(box_tar):
             return 0
 
-        old_state = state
-        categorical_state = self.to_categorical_tensor(old_state,box_tar,10,10)
-        
+        old_state = state   ## (10, 10) game
+  
+        categorical_state = self.to_categorical_tensor(old_state,box_tar,10,10) ## (10, 10, 5) categorical state
+        # print(categorical_state)
         categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
-        output = self(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5))
-        return output.item()
+        
+        output = self(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5)) ## 5 since we have 5 different types of cells in the game (empty, wall, box, target, box on target)
+
+        return output

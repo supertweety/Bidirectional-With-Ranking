@@ -402,47 +402,54 @@ def biBaseTTBS(states, withLearning, withTraining):
         criterion, optimizer = nn.initialize_cr_opt()
         print("--- Pre Learning Scores --- ")
     if withTraining:
-        
-        for state_idx in range(len(states)):
-            puzzle = states[state_idx]
-            searcher = BidirectionalF2FSearch(puzzle, None)
+        for epoch in range(5): 
+            for state_idx in range(len(states)):
+                puzzle = states[state_idx]
+                searcher = BidirectionalF2FSearch(puzzle, None)
 
-            start_time = time.time()
-            path = searcher.search(max_iterations=50000)
-            elapsed = time.time() - start_time
+                start_time = time.time()
+                path = searcher.search(max_iterations=50000)
+                elapsed = time.time() - start_time
 
-            if path:
-                result = "SUCCESS"
-                path_len = len(path)
-                print(
-                    f"[{state_idx:>3d}] SUCCESS  "
-                    f"path={path_len:>4d}  "
-                    f"iters={searcher.iteration:>6d}  "
-                    f"time={elapsed:.3f}s"
-                )
-            else:
-                result = "FAILED"
-                path_len = 0
-                print(
-                    f"[{state_idx:>3d}] FAILED   "
-                    f"iters={searcher.iteration:>6d}  "
-                    f"time={elapsed:.3f}s"
-                )
+                if path:
+                    result = "SUCCESS"
+                    path_len = len(path)
+                    print(
+                        f"[{state_idx:>3d}] SUCCESS  "
+                        f"path={path_len:>4d}  "
+                        f"iters={searcher.iteration:>6d}  "
+                        f"time={elapsed:.3f}s"
+                    )
+                else:
+                    result = "FAILED"
+                    path_len = 0
+                    # print(
+                    #     f"[{state_idx:>3d}] FAILED   "
+                    #     f"iters={searcher.iteration:>6d}  "
+                    #     f"time={elapsed:.3f}s"
+                    # )
 
-            if withLearning:
-                nn_costs = []
-                optimal_costs = []
-                optimizer.zero_grad()
-                for encoded_state in path:
-                    nn_value = nn.inference(searcher.forward_game.decodeMap(encoded_state), searcher.forward_game.target, searcher.forward_game.goal_map)
-                    optimal_value = searcher.forward_game.evaluateBoard((searcher.forward_game.decodeMap(encoded_state)))
-                    nn_costs.append(nn_value)
-                    optimal_costs.append(optimal_value)
-                output_nn_value_tensor = torch.tensor(nn_costs, requires_grad=True,device=my_device, dtype=torch.float32)
-                output_optimal_value_tensor = torch.tensor(optimal_costs, requires_grad=True,device=my_device, dtype=torch.float32)
-                loss = criterion(output_nn_value_tensor, output_optimal_value_tensor)
-                loss.backward()
-                optimizer.step()
+                if withLearning:
+                    nn_costs = []
+                    optimal_costs = []
+                    optimizer.zero_grad()
+                    for encoded_state in path:
+
+                        nn_value = nn.inference(searcher.forward_game.decodeMap(encoded_state), searcher.forward_game.target, searcher.forward_game.goal_map)
+                        # print(f"NN Value: {nn_value.item():.4f}")
+                        optimal_value = searcher.forward_game.evaluateBoard((searcher.forward_game.decodeMap(encoded_state)))
+                        nn_costs.append(nn_value)
+                        optimal_costs.append(optimal_value)
+                        # optimal_costs.append(1.0)
+                    
+                    output_nn_value_tensor =  torch.stack(nn_costs).to(my_device)
+                    output_nn_value_tensor= output_nn_value_tensor.squeeze()  # Remove extra dimensions if needed
+                    output_optimal_value_tensor =  torch.tensor(optimal_costs,dtype=torch.float32, device=my_device)
+                    # print(output_nn_value_tensor.shape, output_optimal_value_tensor.shape)
+                    loss = criterion(output_nn_value_tensor, output_optimal_value_tensor)
+                    # print(f"Loss: {loss.item():.4f}")
+                    loss.backward()
+                    optimizer.step()
 
     if withLearning and withTraining:
         torch.save(nn.state_dict(), "model_weights.pth")
@@ -451,8 +458,9 @@ def biBaseTTBS(states, withLearning, withTraining):
     writer.writerow(["puzzle_index", "iterations", "path_length", "time_s", "result"])
 
     if os.path.exists("model_weights.pth"):
+        print("Loading model weights from model_weights.pth")
         state_dict = torch.load("model_weights.pth", weights_only=True)
-        nn.load_state_dict(state_dict)
+        nn.load_state_dict(state_dict, strict=False)
     print("--- Testing with Learning ---")
     for state_idx in range(len(states)):
         puzzle = states[state_idx]

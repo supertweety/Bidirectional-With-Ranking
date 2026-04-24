@@ -23,7 +23,11 @@ def get_data(useDummyData=False):
     index = []
 
     i=0
+    k=0
     for line in f:
+        if k < 10:
+            k+=1
+            continue
         array_s.append([int(x) for x in line.split()])
         #print(i)
         if array_s[i] not in duplicate:
@@ -33,8 +37,8 @@ def get_data(useDummyData=False):
             duplicate.append(array_s[i])
             index.append(i)
         i+=1
-        if i > 10:
-            break
+        # if i > 10:
+        #     break
         # break
 
     return all_states
