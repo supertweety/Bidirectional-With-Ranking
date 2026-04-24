@@ -76,11 +76,11 @@ class SearchFrontier:
             # Use your MWPM Manhattan heuristic h(s, d)
             dist = 0
             if self.nn != None:
-                dist = self.nn.inference(current_state, self.game.target, self.game.flipGame(other_front.anchor)) + self.open_closed[curr_hash]["g"]
-                #  dist = self.nn.inference(current_state, self.game.target, self.game.goal_map) + self.open_closed[curr_hash]["g"]
+                dist = self.nn(current_state, self.game.target, self.game.flipGame(other_front.anchor)) + self.open_closed[curr_hash]["g"]
+
             else:
                 dist = (self.game.evaluateBoard(current_state, other_front.anchor) + self.open_closed[curr_hash]["g"])  
-            # print(f"Frontier Size: {len(self.open)} | Dist to Anchor: {dist} and min dist is  {min_dist}")
+
             
             best_hash = self.game.encodeMap(self.open[best_candidate_idx])
             
@@ -106,27 +106,23 @@ class SearchFrontier:
 
         # 3. INTERSECTION CHECK (Move this UP to before expansion)
         # Check if the node we just popped is in the other side's visited set
-        # print(self.isBackward, best_hash, self.game.encodeMap(other_front.game.flipGame(best_candidate)))
         if self.open_closed_set.isdisjoint(other_front.open_closed_set) == False:
             z = self.open_closed_set.intersection(other_front.open_closed_set)
-            
             arbitrary_item = self.game.reconstruct_game(self.anchor, z.pop())
+            self.parentMap[self.game.encodeMap(arbitrary_item)] = self.game.encodeMap(best_candidate)
             self.rendezvous = arbitrary_item
             other_front.rendezvous = other_front.game.flipGame(arbitrary_item)
-            # print(self.game.encodeMap(other_front.game.flipGame(best_candidate)))
             return "SUCCESS"
         
 
         # 4. EXPAND SUCCESSORS
         player_loc = self.game.getPlayerLocation(best_candidate)
- 
         directions = self.game.availableStates(player_loc)
         successors = []
         for direction_and_movement in directions:
             direction = direction_and_movement[0]
             new_map = self.game.move(player_loc, direction_and_movement)
             
-
             if new_map is None  :
                 continue
             if self.game.isGoal(new_map) == True:

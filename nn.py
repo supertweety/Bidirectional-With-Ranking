@@ -245,7 +245,7 @@ class NN(nn.Module):
         self.op2 = nn.Linear(256, 1) # 1 output
 
 
-    def forward(self, inputA, inputB):
+    def forward(self, inputA, box_tar,inputB):
         """
         Forward pass of the neural network.
         
@@ -256,6 +256,7 @@ class NN(nn.Module):
         Returns:
             torch.Tensor: Predicted value.
         """
+        inputA, inputB = self.reshapeInputs(inputA, box_tar,inputB)
         # The Keras model assumes N, H, W, C. PyTorch uses N, C, H, W.
         # Permute inputs from (N, H, W, 5) to (N, 5, H, W)
         inputA = torch.from_numpy(inputA).permute(0, 3, 1, 2).float()
@@ -385,7 +386,7 @@ class NN(nn.Module):
 
 
     
-    def inference(self,state, box_tar,goal_state):
+    def reshapeInputs(self,state, box_tar,goal_state):
         """
         Perform inference for a single state.
         
@@ -415,6 +416,4 @@ class NN(nn.Module):
         # print(categorical_state)
         categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
         
-        output = self(categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5)) ## 5 since we have 5 different types of cells in the game (empty, wall, box, target, box on target)
-
-        return output
+        return categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5)
