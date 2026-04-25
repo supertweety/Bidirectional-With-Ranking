@@ -4,6 +4,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import math
 import numpy as np
+import lightning as L
+import os
+import csv
+from torchmetrics import Accuracy
 # --- 1. Positional Encoding Layer ---
 
 def get_positional_encoding(H, W, C):
@@ -417,3 +421,45 @@ class NN(nn.Module):
         categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
         
         return categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5)
+
+
+
+class NNLightning(L.LightningModule):
+    """
+    PyTorch Lightning wrapper for the NN model.
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.model = NN(dim)
+        self.criterion, self.optimizer = self.model.initialize_cr_opt()
+        log_dir = "./loss_logs"
+        file_count = len([f for f in os.listdir(log_dir) if os.path.isfile(os.path.join(log_dir, f))])
+        new_file_num = file_count + 1
+        filename = f"{new_file_num}.txt"
+        filepath = os.path.join(log_dir, filename)
+        headers = ['epoch', 'step', 'nn_cost', 'optimal_cost', 'loss']
+        self.f = open(filepath, mode='w', newline='')
+        self.writer = csv.writer(self.f)
+        self.writer.writerow(headers)
+    def forward(self, inputA, box_tar,inputB):
+        return self.model(inputA, box_tar,inputB)
+
+    def training_step(self, batch, batch_idx):
+        inputA, box_tar,inputB, target = batch
+        output = self(inputA, box_tar,inputB)
+        loss = self.criterion(output.squeeze(), target.float())
+        self.log('train_loss', loss)
+        self.writer.writerow([self.current_epoch, loss.item()])
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        inputA, box_tar,inputB, target = batch
+        output = self(inputA, box_tar,inputB)
+        loss = self.criterion(output.squeeze(), target.float())
+        self.log('val_loss', loss)
+        return loss
+    def configure_optimizers(self):
+        return self.optimizer
+    
+    def on_fit_end(self, trainer, pl_module):
+        self.f.close()

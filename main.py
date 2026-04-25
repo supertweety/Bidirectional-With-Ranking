@@ -530,89 +530,94 @@ def biBaseAnchorSearch(states, forward_puzzle, backwardPuzzle, withLearning, wit
         log_dir = "./loss_logs"
         file_count = len([f for f in os.listdir(log_dir) if os.path.isfile(os.path.join(log_dir, f))])
         new_file_num = file_count + 1
-        filename = f"{new_file_num}.csv"
+        filename = f"{new_file_num}.txt"
         filepath = os.path.join(log_dir, filename)
         # 3. Define your headers
         headers = ['epoch', 'step', 'nn_cost', 'optimal_cost', 'loss']
 
         # 4. Create the file and write the headers
         with open(filepath, mode='w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(headers)
-            for epoch in range(5):
-                for state in range(1, len(states)):
-                    completed = False
-                    alternate = True
-                    status = ""
-                    status2 = ""
-                    step_counter = 0
-                    path = []
-                    
-                    while not completed:
-                        if alternate:
-                            # Expand Forward towards Backward's Anchor
-                            status = frontAnchorSearch.step(backwardAnchorSearch)
-                            alternate = False
+            # writer = csv.writer(f)
+            #writer.writerow(headers)
+        #    for epoch in range(5):
+            for state in range(1, len(states)):
+                completed = False
+                alternate = True
+                status = ""
+                status2 = ""
+                step_counter = 0
+                path = []
+                
+                while not completed:
+                    if alternate:
+                        # Expand Forward towards Backward's Anchor
+                        status = frontAnchorSearch.step(backwardAnchorSearch)
+                        alternate = False
+                    else:
+                        # Expand Backward towards Forward's Anchor (FIXED)
+                        status2 = backwardAnchorSearch.step(frontAnchorSearch)
+                        alternate = True
+
+                    # Check the status of the step JUST taken
+                    if status == "SUCCESS" or status2 == "SUCCESS":
+                        print("Converged!", step_counter)
+                        print(f"STATUS: {status}, STATUS2: {status2}")
+                        if status == "SUCCESS":
+                            print("Frontier Search Converged!")
                         else:
-                            # Expand Backward towards Forward's Anchor (FIXED)
-                            status2 = backwardAnchorSearch.step(frontAnchorSearch)
-                            alternate = True
+                            print("Backward Search Converged!")
+                        front_path = frontAnchorSearch.reconstructPath()
+                        back_path = backwardAnchorSearch.reconstructPath()
+                        # print(len(front_path), len(back_path)) 
+                        back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
+                        path = front_path + back_path_f_oriented
+                        ## save off paths so need to precompute
+                        # writer.writerow(path)
+                        line_content = " ".join(map(str, path)) + "\n"
+                        f.write(line_content)
+                        completed = True
+                        break
 
-                        # Check the status of the step JUST taken
-                        if status == "SUCCESS" or status2 == "SUCCESS":
-                            print("Converged!", step_counter)
-                            print(f"STATUS: {status}, STATUS2: {status2}")
-                            if status == "SUCCESS":
-                                print("Frontier Search Converged!")
-                            else:
-                                print("Backward Search Converged!")
-                            front_path = frontAnchorSearch.reconstructPath()
-                            back_path = backwardAnchorSearch.reconstructPath()
-                            # print(len(front_path), len(back_path)) 
-                            back_path_f_oriented = frontAnchorSearch.flipPath(back_path)
-                            path = front_path + back_path_f_oriented
+                    if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
+                        # Check if BOTH have now failed
+                        if status == "FINISHED_EARLY":
+                            print("Front finished first")
+                        else:
+                            print("Back Finished First")
+                        print("Did not Converge: One side finished and did not meet")
+                        line_content = "INCOMPLETE" + "\n"
+                        f.write(line_content)
+                        completed = True
+                        break 
+                    if status == "FAILED" or status2 == "FAILED":
+                        # Check if BOTH have now failed
+                        print("Did not Converge: Search space exhausted on both sides.")
+                        completed = True
+                        break
+                    step_counter += 1
 
-                            completed = True
-                            break
+                
+                # nn_costs = []
+                # optimal_costs = []
+                # optimizer.zero_grad()
+                # for encoded_state in path:
+                #     nn_value = nn(frontAnchorSearch.game.decodeMap(encoded_state), frontAnchorSearch.game.target, frontAnchorSearch.game.goal_map)
+                #     optimal_value = frontAnchorSearch.game.evaluateBoard((frontAnchorSearch.game.decodeMap(encoded_state)))
+                #     nn_costs.append(nn_value)
+                #     optimal_costs.append(optimal_value)
+                # nn_costs_tensor = torch.stack(nn_costs).to(my_device)
+                
+                # optimal_costs_tensor = torch.tensor(optimal_costs, requires_grad=True, device=my_device, dtype=torch.float32)
+                # nn_costs_tensor = nn_costs_tensor.squeeze()  # Remove extra dimensions if needed
+                # print(f"NN Costs Tensor Shape: {nn_costs_tensor}, Optimal Costs Tensor Shape: {optimal_costs_tensor}")
+                # loss = criterion(nn_costs_tensor, optimal_costs_tensor)
+                # loss.backward()
+                # print(f"State {state}, Loss: {loss:.4f}")
+                # #writer.writerow([epoch, step_counter, nn_costs_tensor.mean().item(), optimal_costs_tensor.mean().item(), loss.item()])
+                # optimizer.step()
 
-                        if status == "FINISHED_EARLY" or status2 == "FINISHED_EARLY":
-                            # Check if BOTH have now failed
-                            if status == "FINISHED_EARLY":
-                                print("Front finished first")
-                            else:
-                                print("Back Finished First")
-                            print("Did not Converge: One side finished and did not meet")
-                            completed = True
-                            break 
-                        if status == "FAILED" or status2 == "FAILED":
-                            # Check if BOTH have now failed
-                            print("Did not Converge: Search space exhausted on both sides.")
-                            completed = True
-                            break
-                        step_counter += 1
-
-                    
-                    nn_costs = []
-                    optimal_costs = []
-                    optimizer.zero_grad()
-                    for encoded_state in path:
-                        nn_value = nn(frontAnchorSearch.game.decodeMap(encoded_state), frontAnchorSearch.game.target, frontAnchorSearch.game.goal_map)
-                        optimal_value = frontAnchorSearch.game.evaluateBoard((frontAnchorSearch.game.decodeMap(encoded_state)))
-                        nn_costs.append(nn_value)
-                        optimal_costs.append(optimal_value)
-                    nn_costs_tensor = torch.stack(nn_costs).to(my_device)
-                    
-                    optimal_costs_tensor = torch.tensor(optimal_costs, requires_grad=True, device=my_device, dtype=torch.float32)
-                    nn_costs_tensor = nn_costs_tensor.squeeze()  # Remove extra dimensions if needed
-                    print(f"NN Costs Tensor Shape: {nn_costs_tensor}, Optimal Costs Tensor Shape: {optimal_costs_tensor}")
-                    loss = criterion(nn_costs_tensor, optimal_costs_tensor)
-                    loss.backward()
-                    print(f"State {state}, Loss: {loss:.4f}")
-                    writer.writerow([epoch, step_counter, nn_costs_tensor.mean().item(), optimal_costs_tensor.mean().item(), loss.item()])
-                    optimizer.step()
-
-                    frontAnchorSearch = SearchFrontier(states[state], False)
-                    backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True)
+                frontAnchorSearch = SearchFrontier(states[state], False)
+                backwardAnchorSearch = SearchFrontier(frontAnchorSearch.game.initializeBackwardPuzzle(states[state]), True)
 
     if withLearning and withTraining:
         torch.save(nn.state_dict(), "model_weights.pth")

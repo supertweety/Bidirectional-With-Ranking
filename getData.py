@@ -43,3 +43,21 @@ def get_data(useDummyData=False):
 
     return all_states
     f.close()
+
+
+def get_paths():
+    """
+    Load paths from a text file.
+    
+    Returns:
+        list: List of paths, where each path is a list of game states.
+    """
+    all_paths=[]
+    f=open("paths10_3box.txt", "r")
+    array_s=[]
+    for line in f:
+        array_s.append([int(x) for x in line.split()])
+        arr=np.asarray(array_s[:-1])
+        all_paths.append(arr)
+        array_s=[]
+    return all_paths

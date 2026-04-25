@@ -3,3 +3,4 @@ __pycache__/
 model_weights.pth
 ttbs_results.csv
 search_results.csv
+loss_logs/
