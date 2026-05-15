@@ -4,10 +4,15 @@ import torch.nn.functional as F
 import torch.optim as optim
 import math
 import numpy as np
-import lightning as L
 import os
 import csv
-from torchmetrics import Accuracy
+try:
+    import lightning as L
+    from torchmetrics import Accuracy
+    _LIGHTNING_AVAILABLE = True
+except Exception:
+    L = None
+    _LIGHTNING_AVAILABLE = False
 # --- 1. Positional Encoding Layer ---
 
 def get_positional_encoding(H, W, C):
@@ -424,7 +429,50 @@ class NN(nn.Module):
 
 
 
-class NNLightning(L.LightningModule):
+class SmallCNN(nn.Module):
+    """Compact CNN heuristic for 10x10 Sokoban boards.
+
+    Input is the same (state, target, goal_state) signature as NN: two
+    one-hot encoded boards of shape (10, 10, 5) which concatenate into a
+    10-channel tensor. Trains fast on CPU.
+    """
+
+    def __init__(self, channels=32):
+        super().__init__()
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(10, channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.conv3 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc1 = nn.Linear(channels, 64)
+        self.fc2 = nn.Linear(64, 1)
+        # Reuse NN's preprocessing helpers
+        self._helper = NN.__new__(NN)  # uninitialized; only used for methods
+        nn.Module.__init__(self._helper)
+
+    def _prep(self, state, box_tar, goal_state):
+        a, b = NN.reshapeInputs(self._helper, state, box_tar, goal_state)
+        a = torch.from_numpy(a).permute(0, 3, 1, 2).float()
+        b = torch.from_numpy(b).permute(0, 3, 1, 2).float()
+        return torch.cat([a, b], dim=1)
+
+    def forward(self, state, box_tar, goal_state):
+        x = self._prep(state, box_tar, goal_state)
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pool(x).flatten(1)
+        x = self.relu(self.fc1(x))
+        return self.fc2(x)
+
+    def initialize_cr_opt(self, lr=1e-3):
+        return nn.MSELoss(), optim.Adam(self.parameters(), lr=lr)
+
+
+_LightningBase = L.LightningModule if _LIGHTNING_AVAILABLE else object
+
+
+class NNLightning(_LightningBase):
     """
     PyTorch Lightning wrapper for the NN model.
     """
