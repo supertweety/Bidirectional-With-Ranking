@@ -1,11 +1,11 @@
 import numpy as np
 from typing import Tuple, Set, Optional
-from SokobanGame import SokobanGame
+from game.SokobanGame import SokobanGame
 import heapq
-from astar_helper import to_categorical_tensor
+from search.astar_helper import to_categorical_tensor
 from typing import Literal
 from collections import OrderedDict
-from sample_random import samp_rand_norm
+from game.sample_random import samp_rand_norm
 GameMap = {
     "Sokoban": SokobanGame
 }

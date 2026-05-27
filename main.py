@@ -1,20 +1,21 @@
 # Example file showing a basic pygame "game loop"
 import pygame
 from pygame_files.drawGame import draw_game, draw_finish_screen, draw_bidirectional_screen, draw_side_by_side, redrawText
-from getData import get_data
-from astar import Astar
+from game.getData import get_data
+from search.astar import Astar
 import sys
 import argparse
 from tqdm import tqdm
 import time
-from nn import NN
+from learning.nn import NN
 import os
 import numpy as np
-from SokobanGame import SokobanGame
+from game.SokobanGame import SokobanGame
 import torch
 import csv
-from AnchorSearch import SearchFrontier
-from AI_Bidirectional import BidirectionalF2FSearch
+from search.AnchorSearch import SearchFrontier
+from search.AI_Bidirectional import BidirectionalF2FSearch
+from learning.replay_buffer import ReplayBuffer
 from typing import Literal
 import json
 
@@ -95,6 +96,24 @@ def parse_arguments():
         choices=["yes", "no"],
         help="Use Top-to-Top Bidirectional Search (TTBS) from IJCAI 2020"
     )
+
+    # --- Replay buffer / training settings (TTBS path) ---
+    replay_group = parser.add_argument_group("Replay Buffer Settings")
+    replay_group.add_argument("--replay_capacity", type=int, default=50000,
+                              help="Max transitions held in the replay buffer")
+    replay_group.add_argument("--batch_size", type=int, default=32,
+                              help="Minibatch size sampled from the buffer per update")
+    replay_group.add_argument("--updates_per_solve", type=int, default=4,
+                              help="Gradient updates after each successfully solved puzzle")
+    replay_group.add_argument("--warmup", type=int, default=1000,
+                              help="Minimum buffer size before training starts")
+    replay_group.add_argument("--train_epochs", type=int, default=5,
+                              help="Number of passes over the puzzle set when training")
+    replay_group.add_argument("--buffer_path", type=str, default="replay_buffer.pkl",
+                              help="Path to load/save the replay buffer")
+    replay_group.add_argument("--load_buffer", type=str, default="no",
+                              choices=["yes", "no"],
+                              help="Load buffer from --buffer_path before training")
 
     # --- Experiment & Environment ---
     exp_group = parser.add_argument_group("Experiment & Environment Settings")
@@ -382,27 +401,63 @@ def biBaseFF(states, with_noise, forwardAStar, backwardAStar):
     pygame.quit()
 
 
-def biBaseTTBS(states, withLearning, withTraining):
+def _train_step_from_buffer(nn_model, buffer, batch_size, criterion, optimizer, device):
+    """One gradient step on a minibatch sampled from the replay buffer.
+
+    Returns the scalar loss, or None if the buffer didn't have enough samples.
+    """
+    if len(buffer) == 0:
+        return None
+    samples = buffer.sample(batch_size)
+    optimizer.zero_grad()
+    preds = []
+    targets = []
+    for state, target_loc, goal_map, cost_to_go in samples:
+        pred = nn_model(state, target_loc, goal_map)
+        preds.append(pred)
+        targets.append(cost_to_go)
+    pred_tensor = torch.stack(preds).squeeze().to(device)
+    target_tensor = torch.tensor(targets, dtype=torch.float32, device=device)
+    if pred_tensor.ndim == 0:
+        pred_tensor = pred_tensor.unsqueeze(0)
+        target_tensor = target_tensor.unsqueeze(0)
+    loss = criterion(pred_tensor, target_tensor)
+    loss.backward()
+    optimizer.step()
+    return loss.item()
+
+
+def biBaseTTBS(states, withLearning, withTraining,
+               replay_capacity=50000, batch_size=32, updates_per_solve=4,
+               warmup=1000, train_epochs=5,
+               buffer_path="replay_buffer.pkl", load_buffer=False):
     """
     Run Top-to-Top Bidirectional Search (TTBS) over all states.
 
-    Mirrors biBaseAnchorSearch: iterates through each puzzle state,
-    runs BidirectionalF2FSearch.search(), and reports results per puzzle.
-
-    Args:
-        states (list): List of puzzle boards (np.ndarray).
+    Training (if enabled) uses a replay buffer of (state, target, goal_map,
+    cost_to_go) transitions. Labels are the true remaining path length on
+    each solved path; updates_per_solve gradient steps are taken on uniform
+    minibatches sampled from the buffer after each successful solve, once
+    the buffer holds at least `warmup` transitions.
     """
     print("=== TTBS (Top-to-Top Bidirectional Search) ===")
-   
-    nn = None
-    if withLearning: 
-        nn = NN(10)
+
+    nn_model = None
+    buffer = None
+    if withLearning:
+        nn_model = NN(10)
         my_device = "cuda:0" if torch.cuda.is_available() else "cpu"
         print(f"Current Device is: {my_device}")
-        criterion, optimizer = nn.initialize_cr_opt()
+        criterion, optimizer = nn_model.initialize_cr_opt()
+        buffer = ReplayBuffer(capacity=replay_capacity)
+        if load_buffer and buffer.load(buffer_path):
+            print(f"Loaded replay buffer ({len(buffer)} transitions) from {buffer_path}")
         print("--- Pre Learning Scores --- ")
+
     if withTraining:
-        for epoch in range(5): 
+        running_loss = 0.0
+        loss_count = 0
+        for epoch in range(train_epochs):
             for state_idx in range(len(states)):
                 puzzle = states[state_idx]
                 searcher = BidirectionalF2FSearch(puzzle, None)
@@ -412,47 +467,48 @@ def biBaseTTBS(states, withLearning, withTraining):
                 elapsed = time.time() - start_time
 
                 if path:
-                    result = "SUCCESS"
                     path_len = len(path)
                     print(
-                        f"[{state_idx:>3d}] SUCCESS  "
+                        f"[ep {epoch} | {state_idx:>3d}] SUCCESS  "
                         f"path={path_len:>4d}  "
                         f"iters={searcher.iteration:>6d}  "
-                        f"time={elapsed:.3f}s"
+                        f"time={elapsed:.3f}s  "
+                        f"buf={len(buffer) if buffer is not None else 0}"
                     )
                 else:
-                    result = "FAILED"
                     path_len = 0
-                    # print(
-                    #     f"[{state_idx:>3d}] FAILED   "
-                    #     f"iters={searcher.iteration:>6d}  "
-                    #     f"time={elapsed:.3f}s"
-                    # )
 
-                if withLearning:
-                    nn_costs = []
-                    optimal_costs = []
-                    optimizer.zero_grad()
-                    for encoded_state in path:
+                if withLearning and path:
+                    decoded_path = [searcher.forward_game.decodeMap(s) for s in path]
+                    buffer.add_pairs_from_path(
+                        decoded_path,
+                        searcher.forward_game.target,
+                    )
 
-                        nn_value = nn.inference(searcher.forward_game.decodeMap(encoded_state), searcher.forward_game.target, searcher.forward_game.goal_map)
-                        # print(f"NN Value: {nn_value.item():.4f}")
-                        optimal_value = searcher.forward_game.evaluateBoard((searcher.forward_game.decodeMap(encoded_state)))
-                        nn_costs.append(nn_value)
-                        optimal_costs.append(optimal_value)
-                        # optimal_costs.append(1.0)
-                    
-                    output_nn_value_tensor =  torch.stack(nn_costs).to(my_device)
-                    output_nn_value_tensor= output_nn_value_tensor.squeeze()  # Remove extra dimensions if needed
-                    output_optimal_value_tensor =  torch.tensor(optimal_costs,dtype=torch.float32, device=my_device)
-                    # print(output_nn_value_tensor.shape, output_optimal_value_tensor.shape)
-                    loss = criterion(output_nn_value_tensor, output_optimal_value_tensor)
-                    # print(f"Loss: {loss.item():.4f}")
-                    loss.backward()
-                    optimizer.step()
+                    if len(buffer) >= warmup:
+                        for _ in range(updates_per_solve):
+                            loss_val = _train_step_from_buffer(
+                                nn_model, buffer, batch_size,
+                                criterion, optimizer, my_device,
+                            )
+                            if loss_val is not None:
+                                running_loss += loss_val
+                                loss_count += 1
+                        if loss_count > 0 and loss_count % 50 == 0:
+                            print(f"  avg loss (last 50 updates): "
+                                  f"{running_loss / loss_count:.4f}")
+
+            if withLearning:
+                torch.save(nn_model.state_dict(), "model_weights.pth")
+                buffer.save(buffer_path)
+                print(f"  [epoch {epoch}] saved model + buffer "
+                      f"({len(buffer)} transitions)")
 
     if withLearning and withTraining:
-        torch.save(nn.state_dict(), "model_weights.pth")
+        torch.save(nn_model.state_dict(), "model_weights.pth")
+        buffer.save(buffer_path)
+    # rebind for the legacy evaluation section below
+    nn = nn_model
     csv_file = open("ttbs_results.csv", "a")
     writer   = csv.writer(csv_file, delimiter='\t')
     writer.writerow(["puzzle_index", "iterations", "path_length", "time_s", "result"])
@@ -1391,7 +1447,18 @@ if __name__ == "__main__":
                 biBaseAnchorSearch(states, only_one_state, backward_puzzle, args.with_learning=="on", args.with_training=="yes")
                 sys.exit(0)
             if args.ttbs == "yes":
-                biBaseTTBS(states, args.with_learning=="on", args.with_training=="yes")
+                biBaseTTBS(
+                    states,
+                    args.with_learning == "on",
+                    args.with_training == "yes",
+                    replay_capacity=args.replay_capacity,
+                    batch_size=args.batch_size,
+                    updates_per_solve=args.updates_per_solve,
+                    warmup=args.warmup,
+                    train_epochs=args.train_epochs,
+                    buffer_path=args.buffer_path,
+                    load_buffer=args.load_buffer == "yes",
+                )
                 sys.exit(0)
             biBaseRun(states, args.with_noise, forwardAStar, backwardAStar)
             sys.exit(0)

@@ -13,6 +13,43 @@ Traditional search algorithms often optimize for the shortest path to a goal. Th
 
 ---
 
+## 📁 Project Structure
+
+The code is organized into packages by responsibility:
+
+```
+game/        Sokoban game logic & data loading (SokobanGame, getData, …)
+search/      Search algorithms (AI_Bidirectional/TTBS, AnchorSearch, astar)
+learning/    Learned heuristic: model (nn), replay_buffer, online_run driver
+analysis/    Offline analysis & plotting (analyze_optimality, results, …)
+viz/         Pygame visualization helpers
+tests/       Tests
+data/        Puzzle datasets (states10_3box.txt, test_box.txt)
+main.py      Pygame application entry point (run from repo root)
+```
+
+Run scripts from the **repo root** as modules so package imports resolve, e.g.:
+
+```bash
+# Online learned-heuristic training/eval curve (CPU default)
+python -m learning.online_run
+
+# Same, with heavy training on Apple-Silicon GPU (MPS)
+TRAIN_DEVICE=mps BATCH_SIZE=256 UPDATES_PER_SOLVE=32 BUFFER_CAP=100000 python -m learning.online_run
+
+# Optimality analysis (expanded nodes vs path length)
+python -m analysis.analyze_optimality
+
+# Pygame app
+python main.py
+```
+
+`learning/online_run.py` reads optional env knobs: `N_TOTAL`, `MODEL_CHANNELS`,
+`BATCH_SIZE`, `UPDATES_PER_SOLVE`, `BUFFER_CAP`, `LOSS={mse,rank,both}`,
+`REG_LOSS={mae,mse}`, `USE_G={yes,no}`, `TRAIN_DEVICE={cpu,mps}`, `K_REMINE`.
+
+---
+
 ## 🔧 Program Details and Usage
 
 The project can be run with various configurations controlled by command-line arguments.

@@ -1,8 +1,8 @@
 import random
-from SokobanGame import SokobanGame
+from game.SokobanGame import SokobanGame
 import heapq
 import random
-from sample_random import samp_rand_norm
+from game.sample_random import samp_rand_norm
 import sys
 class SearchFrontier:
     """
