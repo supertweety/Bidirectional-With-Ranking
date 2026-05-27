@@ -3,7 +3,7 @@ import numpy as np
 import lightning as L
 from torch.utils.data import DataLoader, Subset
 
-from getData import get_data, get_paths
+from game.getData import get_data, get_paths
 class SokobanDataModule(L.LightningDataModule):
     def __init__(self, data_dir: str = "path/to/dir", path_dir: str = "path/to/path_dir", batch_size: int = 32):
         super().__init__()

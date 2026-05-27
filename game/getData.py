@@ -1,21 +1,27 @@
+import os
 import numpy as np
+
+# Repo-root /data directory, resolved relative to this file so data loads
+# regardless of the current working directory.
+_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
 
 def get_data(useDummyData=False):
     """
     Load game states from a text file.
-    
+
     Args:
         useDummyData (bool): Whether to use the small test dataset.
-        
+
     Returns:
         list: List of 10x10 numpy arrays representing game states.
     """
     all_states=[]
     f = None
     if useDummyData:
-        f=open("test_box.txt", "r")
+        f=open(os.path.join(_DATA_DIR, "test_box.txt"), "r")
     else:
-        f=open("states10_3box.txt", "r")
+        f=open(os.path.join(_DATA_DIR, "states10_3box.txt"), "r")
 
     array_s=[]
     array_a=[]
@@ -53,7 +59,7 @@ def get_paths():
         list: List of paths, where each path is a list of game states.
     """
     all_paths=[]
-    f=open("paths10_3box.txt", "r")
+    f=open(os.path.join(_DATA_DIR, "paths10_3box.txt"), "r")
     array_s=[]
     for line in f:
         array_s.append([int(x) for x in line.split()])

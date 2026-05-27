@@ -1,6 +1,6 @@
 import numpy as np
-from AI_Bidirectional import BidirectionalF2FSearch
-from SokobanGame import SokobanGame
+from search.AI_Bidirectional import BidirectionalF2FSearch
+from game.SokobanGame import SokobanGame
 import time
 
 def load_simple_puzzle():

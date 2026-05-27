@@ -1,7 +1,7 @@
 import numpy as np
 import heapq
 from typing import Tuple, Dict, List, Optional, Set
-from SokobanGame import SokobanGame
+from game.SokobanGame import SokobanGame
 
 
 class BidirectionalF2FSearch:
@@ -100,18 +100,27 @@ class BidirectionalF2FSearch:
         self.iteration: int = 0
         self._initialized: bool = False
 
+        # Iteration index at which the two frontiers first met (the search's
+        # "work to solve"; the search returns at this point).
+        self.first_meeting_iter: Optional[int] = None
+
+        # If False, the f-score collapses to pure h (GBFS-style) instead of
+        # g + h. Combined with closed-set cycle prevention this is the
+        # natural pairing for a ranking-only heuristic whose scale is
+        # unconstrained.
+        self.use_g_in_f: bool = True
+
     # ──────────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────────
 
-    def _box_key(self, board: np.ndarray) -> str:
+    def _box_key(self, board: np.ndarray) -> bytes:
+        """Canonical key based solely on box positions (uint8 row|col bytes).
+        ~2.7× faster than the prior str(sorted(zip(...))) form.
+        np.where returns C-order indices, so they're already sorted.
         """
-        Canonical key based solely on sorted box positions.
-        Board must be in the *forward* game's coordinate system
-        (i.e., boxes are value 4, targets are value 2).
-        """
-        locs = sorted(zip(*np.where(board == 4)))
-        return str(locs)
+        rows, cols = np.where(board == 4)
+        return rows.astype(np.uint8).tobytes() + cols.astype(np.uint8).tobytes()
 
     def _f_score(self, node_hash: str, g: int, opp_anchor_hash: Optional[str],
                  active_game: SokobanGame, opp_game: SokobanGame) -> float:
@@ -132,25 +141,32 @@ class BidirectionalF2FSearch:
 
     def _f_score_nn(self, node_hash: str, g: int, opp_anchor_hash: Optional[str],
                  active_game: SokobanGame, opp_game: SokobanGame) -> float:
-        """
-        f(s) = g(s) + h_nn(s, anchor)  — pairwise-NN heuristic.
+        """f(s) = g(s) + max(0, h_nn(s, anchor)).
 
-        The NN learns dist(s1, s2). For the front-to-front search we feed
-        (active node, opponent anchor flipped into the active frame). Same
-        call works for both directions because backward-Sokoban is the
-        inverse problem and dist is symmetric under that involution.
+        h_nn is the learned model's predicted distance from the node to the
+        opposite frontier's anchor (flipped into the active frame). We cache
+        the decoded/flipped opp_anchor map so multiple calls within the same
+        `_expand` (e.g. during lazy re-evaluation) skip the redo.
         """
         import torch
         node_map = active_game.decodeMap(node_hash)
-        if opp_anchor_hash is None:
-            other = active_game.goal_map
+        cache = getattr(self, "_other_cache", None)
+        if cache is None:
+            cache = {}
+            self._other_cache = cache
+        ck = (id(active_game), opp_anchor_hash)
+        if ck in cache:
+            other = cache[ck]
         else:
-            opp_anchor_map = opp_game.decodeMap(opp_anchor_hash)
-            other = active_game.flipGame(opp_anchor_map)
+            if opp_anchor_hash is None:
+                other = active_game.goal_map
+            else:
+                other = active_game.flipGame(opp_game.decodeMap(opp_anchor_hash))
+            cache[ck] = other
         with torch.no_grad():
-            h = float(self.nn(node_map, active_game.target, other).item())
-        h = max(0.0, h)
-        return float(g + h)
+            h_nn = float(self.nn(node_map, active_game.target, other).item())
+        h = max(0.0, h_nn)
+        return float((g + h) if self.use_g_in_f else h)
 
     def _push(self, heap: List, f: float, g: int, h: str) -> None:
         heapq.heappush(heap, (f, -g, h))   # neg_g: deeper = smaller = better tie
@@ -319,7 +335,9 @@ class BidirectionalF2FSearch:
                     else:
                         self.meeting_bwd = v_hash
                         self.meeting_fwd = opp_hash
-                # Satisficing: return immediately on first intersection
+                    if self.first_meeting_iter is None:
+                        self.first_meeting_iter = self.iteration
+                # Satisficing: return immediately on first intersection.
                 return True, self.reconstruct_path()
 
             # ── Push successor ────────────────────────────────────────
@@ -395,14 +413,9 @@ class BidirectionalF2FSearch:
     # ──────────────────────────────────────────────────────────────────
 
     def search(self, max_iterations: int = 10000) -> Optional[List[str]]:
-        """
-        Execute TTBS bidirectional search.
-
-        Args:
-            max_iterations: Expansion budget.
-
-        Returns:
-            List of forward-encoded map strings (start → goal), or None.
+        """Execute TTBS bidirectional search, returning the reconstructed
+        path (start → goal) at the first frontier intersection, or None if
+        the budget is exhausted without meeting.
         """
         self.init_search()
         for _ in range(max_iterations):

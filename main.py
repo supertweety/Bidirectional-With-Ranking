@@ -1,21 +1,21 @@
 # Example file showing a basic pygame "game loop"
 import pygame
 from pygame_files.drawGame import draw_game, draw_finish_screen, draw_bidirectional_screen, draw_side_by_side, redrawText
-from getData import get_data
-from astar import Astar
+from game.getData import get_data
+from search.astar import Astar
 import sys
 import argparse
 from tqdm import tqdm
 import time
-from nn import NN
+from learning.nn import NN
 import os
 import numpy as np
-from SokobanGame import SokobanGame
+from game.SokobanGame import SokobanGame
 import torch
 import csv
-from AnchorSearch import SearchFrontier
-from AI_Bidirectional import BidirectionalF2FSearch
-from replay_buffer import ReplayBuffer
+from search.AnchorSearch import SearchFrontier
+from search.AI_Bidirectional import BidirectionalF2FSearch
+from learning.replay_buffer import ReplayBuffer
 from typing import Literal
 import json
 
@@ -480,10 +480,9 @@ def biBaseTTBS(states, withLearning, withTraining,
 
                 if withLearning and path:
                     decoded_path = [searcher.forward_game.decodeMap(s) for s in path]
-                    buffer.add_path(
+                    buffer.add_pairs_from_path(
                         decoded_path,
                         searcher.forward_game.target,
-                        searcher.forward_game.goal_map,
                     )
 
                     if len(buffer) >= warmup:

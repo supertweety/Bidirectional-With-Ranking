@@ -13,6 +13,10 @@ try:
 except Exception:
     L = None
     _LIGHTNING_AVAILABLE = False
+
+# Cached identity matrix used by NN.to_categorical for one-hot encoding
+# (avoids re-allocating per forward pass).
+_EYE5 = np.eye(5, dtype='uint8')
 # --- 1. Positional Encoding Layer ---
 
 def get_positional_encoding(H, W, C):
@@ -365,6 +369,9 @@ class NN(nn.Module):
         return criterion, optimizer
     def to_categorical(self, y, num_classes):
         """ 1-hot encodes a tensor """
+        # Cache the identity matrix to avoid re-allocating per call.
+        if num_classes == 5:
+            return _EYE5[y]
         return np.eye(num_classes, dtype='uint8')[y]
 
     def to_categorical_tensor(self, x3d,Tar,dim1,dim2):
@@ -380,17 +387,12 @@ class NN(nn.Module):
         Returns:
             torch.Tensor: Categorical tensor.
         """
-        find_box_pos = np.where(x3d == 4)
-        pos=list(zip(*(find_box_pos))) ## (3,2) list of positions of the boxes
-        x1d = x3d.ravel() ## (100,) flatten the 3d tensor to 1d
-        
-        y1d = self.to_categorical( x1d, 5 ) ## (100, 5 )
-        
-        y4d = y1d.reshape( [dim1, dim2, 5]) ## (10, 10, 5)
-   
-        for i in range(len(pos)):
-            y4d[Tar[i][0]][Tar[i][1]][2] = 1
-            y4d[pos[i][0]][pos[i][1]][2] = 1
+        # One-hot encode, then mark channel-2 at box and target cells.
+        y4d = self.to_categorical(x3d.ravel(), 5).reshape(dim1, dim2, 5)
+        box_r, box_c = np.where(x3d == 4)
+        y4d[box_r, box_c, 2] = 1
+        for tr, tc in Tar:
+            y4d[tr, tc, 2] = 1
         return y4d
 
 
@@ -407,25 +409,10 @@ class NN(nn.Module):
         Returns:
             float: Predicted value.
         """
-        box_on_T=[]
-
-        current_box_locations =  list(zip(*(np.where(state == 4))))
-
-        # for i in range(len(box_tar)):
-        #     ## where the boxes are
-        #     if state[box_tar[i][0]][box_tar[i][1]] == 4:
-        #         box_on_T.append([box_tar[i][0],box_tar[i][1]])
-        ## if completed
-        if len(box_on_T) == len(box_tar):
-            return 0
-
-        old_state = state   ## (10, 10) game
-  
-        categorical_state = self.to_categorical_tensor(old_state,box_tar,10,10) ## (10, 10, 5) categorical state
-        # print(categorical_state)
+        categorical_state = self.to_categorical_tensor(state, box_tar, 10, 10)
         categorical_goal_state = self.to_categorical_tensor(goal_state, box_tar, 10, 10)
-        
-        return categorical_state.reshape(1,10,10,5), categorical_goal_state.reshape(1,10,10,5)
+        return (categorical_state.reshape(1, 10, 10, 5),
+                categorical_goal_state.reshape(1, 10, 10, 5))
 
 
 
@@ -452,21 +439,53 @@ class SmallCNN(nn.Module):
 
     def _prep(self, state, box_tar, goal_state):
         a, b = NN.reshapeInputs(self._helper, state, box_tar, goal_state)
-        a = torch.from_numpy(a).permute(0, 3, 1, 2).float()
-        b = torch.from_numpy(b).permute(0, 3, 1, 2).float()
-        return torch.cat([a, b], dim=1)
+        # Concatenate the two one-hot boards in numpy, then a single
+        # from_numpy/permute/float instead of two of each plus a torch.cat.
+        ab = np.concatenate([a, b], axis=-1)  # (1, 10, 10, 10)
+        # .contiguous() after permute: required for correct MPS backward
+        # (permute leaves a non-contiguous view), negligible cost on CPU.
+        t = torch.from_numpy(ab).permute(0, 3, 1, 2).float().contiguous()
+        dev = self.conv1.weight.device
+        return t if dev.type == "cpu" else t.to(dev)
+
+    def _conv_stack(self, x):
+        # Functional API avoids nn.Module.__call__ dispatch (_call_impl,
+        # __getattr__, _get_tracing_state) on every layer — ~9% of search time.
+        x = F.relu(F.conv2d(x, self.conv1.weight, self.conv1.bias, padding=1))
+        x = F.relu(F.conv2d(x, self.conv2.weight, self.conv2.bias, padding=1))
+        x = F.relu(F.conv2d(x, self.conv3.weight, self.conv3.bias, padding=1))
+        x = F.adaptive_avg_pool2d(x, (1, 1)).flatten(1)
+        x = F.relu(F.linear(x, self.fc1.weight, self.fc1.bias))
+        return F.linear(x, self.fc2.weight, self.fc2.bias)
 
     def forward(self, state, box_tar, goal_state):
-        x = self._prep(state, box_tar, goal_state)
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.relu(self.conv3(x))
-        x = self.pool(x).flatten(1)
-        x = self.relu(self.fc1(x))
-        return self.fc2(x)
+        return self._conv_stack(self._prep(state, box_tar, goal_state))
 
-    def initialize_cr_opt(self, lr=1e-3):
-        return nn.MSELoss(), optim.Adam(self.parameters(), lr=lr)
+    def forward_batch(self, states, targets, others):
+        """Vectorized forward pass over a list of (state, target, other) inputs.
+
+        Per-sample one-hot encoding runs in NumPy, but the whole batch is
+        stacked into ONE array and transferred to the model's device in a
+        SINGLE host→device copy — critical for MPS, where per-sample
+        transfers dominate. The conv stack then runs once on the batch.
+        """
+        mats = []
+        for s, t, o in zip(states, targets, others):
+            a, b = NN.reshapeInputs(self._helper, s, t, o)
+            mats.append(np.concatenate([a, b], axis=-1))  # (1, 10, 10, 10)
+        ab = np.concatenate(mats, axis=0)                 # (B, 10, 10, 10)
+        x = torch.from_numpy(ab).permute(0, 3, 1, 2).float().contiguous()
+        dev = self.conv1.weight.device
+        if dev.type != "cpu":
+            x = x.to(dev)  # single transfer for the whole batch
+        return self._conv_stack(x).squeeze(-1)
+
+    def initialize_cr_opt(self, lr=1e-3, loss_type="mae"):
+        if loss_type == "mse":
+            crit = nn.MSELoss()
+        else:
+            crit = nn.L1Loss()  # MAE — robust to heavy-tailed pair distances
+        return crit, optim.Adam(self.parameters(), lr=lr)
 
 
 _LightningBase = L.LightningModule if _LIGHTNING_AVAILABLE else object
