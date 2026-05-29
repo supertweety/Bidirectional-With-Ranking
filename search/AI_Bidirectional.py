@@ -86,36 +86,17 @@ class BidirectionalF2FSearch:
 
         # ── Frontier-meeting keys for O(1) intersection checks ─────────
         # Convergence fires when a freshly generated successor on one side
-        # matches a CLOSED state on the other side. The *meeting key* decides
-        # what counts as "the same state":
-        #
-        #   full-state (default): the entire forward-frame configuration —
-        #     agent position AND box positions. This is the standard,
-        #     domain-agnostic bidirectional-search meeting condition. Because
-        #     the two frontiers meet at a genuinely identical state, the
-        #     reconstructed plan is a valid step-by-step path (the seam is one
-        #     shared state, not an agent "teleport").
-        #
-        #   box-only (legacy): box positions alone, ignoring the agent. Meets
-        #     sooner, but glues two states that differ in agent position, so
-        #     the reconstructed plan teleports the agent across the seam and
-        #     under-counts true distance — poison for distance labels.
-        #
-        # Both key families are maintained so the criterion can be toggled and
-        # the cost measured; ``full_state_meeting`` selects which one fires.
-        self.full_state_meeting: bool = True
-
-        # Full-state keys: the encoded forward-frame board (agent + boxes).
+        # matches a CLOSED state on the other side. The *meeting key* is the
+        # FULL forward-frame state — agent position AND box positions. This is
+        # the standard, domain-agnostic bidirectional-search meeting condition:
+        # the two frontiers meet at a genuinely identical state, so the
+        # reconstructed plan is a valid step-by-step path (the seam is one
+        # shared state, not an agent "teleport") and distance labels are
+        # correct by construction.
         self.fkey_closed_f: Set[str] = set()
         self.fkey_closed_b: Set[str] = set()   # backward states flipped to fwd
         self.fkey_to_hash_f: Dict[str, str] = {}
         self.fkey_to_hash_b: Dict[str, str] = {}
-
-        # Box-only keys (canonical box-position bytes in the forward frame).
-        self.bkey_closed_f: Set[str] = set()
-        self.bkey_closed_b: Set[str] = set()   # backward box keys (flipped to fwd)
-        self.bkey_to_hash_f: Dict[str, str] = {}
-        self.bkey_to_hash_b: Dict[str, str] = {}
 
         # ── TTBS anchor: most recently expanded node on each side ──────
         self.anchor_f: Optional[str] = None
@@ -146,14 +127,6 @@ class BidirectionalF2FSearch:
     # ──────────────────────────────────────────────────────────────────
     # Helpers
     # ──────────────────────────────────────────────────────────────────
-
-    def _box_key(self, board: np.ndarray) -> bytes:
-        """Canonical key based solely on box positions (uint8 row|col bytes).
-        ~2.7× faster than the prior str(sorted(zip(...))) form.
-        np.where returns C-order indices, so they're already sorted.
-        """
-        rows, cols = np.where(board == 4)
-        return rows.astype(np.uint8).tobytes() + cols.astype(np.uint8).tobytes()
 
     def _full_key(self, board: np.ndarray) -> bytes:
         """Canonical FULL-state key: positions of every movable object —
@@ -275,10 +248,6 @@ class BidirectionalF2FSearch:
             fkey_opp     = self.fkey_closed_b
             fkey_map_self= self.fkey_to_hash_f
             fkey_map_opp = self.fkey_to_hash_b
-            bkey_closed  = self.bkey_closed_f
-            bkey_opp     = self.bkey_closed_b
-            bkey_map_self= self.bkey_to_hash_f
-            bkey_map_opp = self.bkey_to_hash_b
             last_tgt     = self.last_target_f
             game         = self.forward_game
             opp_game     = self.backward_game
@@ -294,10 +263,6 @@ class BidirectionalF2FSearch:
             fkey_opp     = self.fkey_closed_f
             fkey_map_self= self.fkey_to_hash_b
             fkey_map_opp = self.fkey_to_hash_f
-            bkey_closed  = self.bkey_closed_b
-            bkey_opp     = self.bkey_closed_f
-            bkey_map_self= self.bkey_to_hash_b
-            bkey_map_opp = self.bkey_to_hash_f
             last_tgt     = self.last_target_b
             game         = self.backward_game
             opp_game     = self.forward_game
@@ -346,9 +311,6 @@ class BidirectionalF2FSearch:
         fk       = self._full_key(u_fwd)        # full-state key (agent + boxes)
         fkey_closed.add(fk)
         fkey_map_self[fk] = u_hash
-        bk       = self._box_key(u_fwd)         # box-only key (legacy criterion)
-        bkey_closed.add(bk)
-        bkey_map_self[bk] = u_hash
 
         # Update temporal anchor
         setattr(self, cur_anch, u_hash)
@@ -392,22 +354,14 @@ class BidirectionalF2FSearch:
             last_tgt[v_hash]   = opp_anchor
 
             # ── Intersection check (O(1)) ─────────────────────────────
-            # Full-state meeting (default) requires the agent position to
-            # match too, so the seam is a genuinely shared state and the
-            # reconstructed plan is a valid step-by-step path. Box-only is
-            # kept behind the flag for comparison.
+            # Full-state meeting requires the agent position to match too, so
+            # the seam is a genuinely shared state and the reconstructed plan
+            # is a valid step-by-step path.
             v_fwd = v_map if is_forward else game.flipGame(v_map)
-            if self.full_state_meeting:
-                key_v   = self._full_key(v_fwd)
-                opp_set = fkey_opp
-                opp_map = fkey_map_opp
-            else:
-                key_v   = self._box_key(v_fwd)
-                opp_set = bkey_opp
-                opp_map = bkey_map_opp
+            key_v = self._full_key(v_fwd)
 
-            if key_v in opp_set:
-                opp_hash = opp_map[key_v]
+            if key_v in fkey_opp:
+                opp_hash = fkey_map_opp[key_v]
                 opp_g    = opp_g_map.get(opp_hash, float('inf'))
                 cost     = new_g + opp_g
                 if cost < self.U:
