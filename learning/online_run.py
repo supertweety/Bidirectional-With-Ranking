@@ -14,9 +14,10 @@ on a CPU twin (batch-1 inference is GPU-hostile). Compared against a no-NN
 baseline pass over the same puzzles.
 
 Key env knobs (all optional):
-  N_TOTAL, MODEL_CHANNELS, BATCH_SIZE, UPDATES_PER_SOLVE, BUFFER_CAP,
+  N_TOTAL, MODEL_CHANNELS, BATCH_SIZE, UPDATES_PER_SOLVE, WARMUP, BUFFER_CAP,
   LOSS={mse,rank,both}, REG_LOSS={mae,mse}, RANK_MARGIN, USE_G={yes,no},
-  TRAIN_DEVICE={cpu,mps}, K_REMINE, REMINE_RANDOM_FRAC
+  TRAIN_DEVICE={cpu,mps}, K_REMINE, REMINE_RANDOM_FRAC,
+  MEETING={full,box}, COLLECT_OFF_PATH={yes,no}, OFF_PATH_PER_PUZZLE
 """
 import os
 import random
@@ -31,9 +32,10 @@ from learning.nn import SmallCNN
 from search.AI_Bidirectional import BidirectionalF2FSearch
 from learning.replay_buffer import ReplayBuffer
 
-torch.manual_seed(0)
-np.random.seed(0)
-_rng = random.Random(0)
+SEED = int(os.environ.get("SEED", "0"))
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+_rng = random.Random(SEED)
 
 # ── Configuration ────────────────────────────────────────────────────────
 N_TOTAL = int(os.environ.get("N_TOTAL", "1000"))
@@ -41,7 +43,17 @@ MAX_ITERS = 10000
 MODEL_CHANNELS = int(os.environ.get("MODEL_CHANNELS", "32"))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "64"))
 UPDATES_PER_SOLVE = int(os.environ.get("UPDATES_PER_SOLVE", "8"))
-WARMUP = 200
+WARMUP = int(os.environ.get("WARMUP", "200"))
+
+# Frontier-meeting criterion: "full" (agent + boxes; reconstructed plan is a
+# valid step-by-step path → correct distance labels) or "box" (legacy box-only;
+# meets sooner but teleports the agent at the seam → corrupt labels).
+MEETING = os.environ.get("MEETING", "full").lower()
+# Harvest off-path closed states as extra (state, goal, dist-to-goal) samples,
+# labeled by a weight-1 graph search from the goal over the union of forward +
+# flipped-backward transitions (valid because full-state meeting shares nodes).
+COLLECT_OFF_PATH = os.environ.get("COLLECT_OFF_PATH", "yes").lower() == "yes"
+OFF_PATH_PER_PUZZLE = int(os.environ.get("OFF_PATH_PER_PUZZLE", "8"))
 BUFFER_CAP = int(os.environ.get("BUFFER_CAP", "20000"))
 WINDOW = 25
 LOG_EVERY = 25
@@ -66,27 +78,121 @@ REMINE_RANDOM_FRAC = float(os.environ.get("REMINE_RANDOM_FRAC", "0.1"))
 def run_search(puzzle, nn_model=None):
     s = BidirectionalF2FSearch(puzzle, nn_model)
     s.use_g_in_f = USE_G
+    s.full_state_meeting = (MEETING == "full")
     t0 = time.time()
     path = s.search(max_iterations=MAX_ITERS)
     return path, s, time.time() - t0
 
 
-def solve_and_collect(puzzle, puzzle_id, nn_model, buffer, rng):
-    """Solve a puzzle and add its solved-path pairs to the buffer (tagged).
+def off_path_distance_to_goal(s):
+    """Weight-1 graph distance from the goal to every closed state, keyed by
+    full state (agent + boxes), over the union of forward transitions and
+    flipped-backward transitions.
 
-    Returns (path, search, dt, n_pairs_added).
+    With full-state meeting the forward graph and the (flipped) backward graph
+    share *real* nodes wherever the agent+box configuration coincides — so the
+    union is a single connected graph and a plain BFS suffices. No bridges, no
+    domain-specific seam repair. Distances are valid forward path lengths to a
+    goal state, hence admissible (never under-count) distance-to-goal labels.
+
+    Returns (dist_by_fullkey, goal_board) or (None, None). ``dist`` maps a
+    full-state key → #moves to the goal; ``goal_board`` is the forward-frame
+    goal state the distances are measured to (agent at its backward-seed cell).
+    """
+    fg, bg = s.forward_game, s.backward_game
+    fk_f, fk_b = {}, {}
+
+    def key_fwd(h):                       # forward hash → full-state key
+        k = fk_f.get(h)
+        if k is None:
+            k = s._full_key(fg.decodeMap(h)); fk_f[h] = k
+        return k
+
+    def key_bwd(h_b):                     # backward hash → full-state key (fwd frame)
+        k = fk_b.get(h_b)
+        if k is None:
+            k = s._full_key(fg.flipGame(bg.decodeMap(h_b))); fk_b[h_b] = k
+        return k
+
+    # Reverse adjacency for a goal-source BFS: rev[to] lists the forward
+    # predecessors `frm` (edge frm→to), so BFS distance from the goal equals
+    # the forward move-distance node→goal.
+    rev = {}
+
+    def add_fwd_edge(frm, to):
+        rev.setdefault(to, []).append(frm)
+
+    for u, vs in s.edges_f.items():
+        ku = key_fwd(u)
+        for v in vs:
+            add_fwd_edge(ku, key_fwd(v))
+    for u_b, vs_b in s.edges_b.items():
+        ku = key_bwd(u_b)
+        for v_b in vs_b:
+            # backward move u_b→v_b  ⇔  forward move flip(v_b)→flip(u_b)
+            add_fwd_edge(key_bwd(v_b), ku)
+
+    bwd_root = next((v for v, p in s.parent_b.items() if p is None), None)
+    if bwd_root is None:
+        return None, None
+    goal_board = fg.flipGame(bg.decodeMap(bwd_root))
+    goal_fk = s._full_key(goal_board)
+
+    dist = {goal_fk: 0}
+    dq = deque([goal_fk])
+    while dq:
+        u = dq.popleft()
+        d = dist[u]
+        for v in rev.get(u, ()):
+            if v not in dist:
+                dist[v] = d + 1
+                dq.append(v)
+    return dist, goal_board
+
+
+def solve_and_collect(puzzle, puzzle_id, nn_model, buffer, rng):
+    """Solve a puzzle and mine training tuples from the result.
+
+    On-path: the reconstructed plan is a valid step-by-step path (full-state
+    meeting), so ``add_pairs_from_path``'s |i-j| labels are exact move counts.
+    Off-path (optional): closed states not on the path are added as
+    (state, goal, dist-to-goal) tuples via a weight-1 graph search from the
+    goal — extra supervision in regions the single path never visits.
+
+    Returns (path, search, dt, n_pairs_added, n_offpath_added).
     """
     path, s, dt = run_search(puzzle, nn_model)
-    n_pairs = 0
-    if path:
-        decoded = [s.forward_game.decodeMap(h) for h in path]
-        n_pairs = buffer.add_pairs_from_path(
-            decoded, s.forward_game.target,
-            num_random_pairs=2 * len(decoded),
-            symmetric=True, include_endpoints=True,
-            puzzle_id=puzzle_id, rng=rng,
-        )
-    return path, s, dt, n_pairs
+    n_pairs = n_off = 0
+    if not path:
+        return path, s, dt, n_pairs, n_off
+
+    decoded = [s.forward_game.decodeMap(h) for h in path]
+    n_pairs = buffer.add_pairs_from_path(
+        decoded, s.forward_game.target,
+        num_random_pairs=2 * len(decoded),
+        symmetric=True, include_endpoints=True,
+        puzzle_id=puzzle_id, rng=rng,
+    )
+
+    if COLLECT_OFF_PATH:
+        dist, goal_board = off_path_distance_to_goal(s)
+        if dist is not None:
+            on_keys = {s._full_key(b) for b in decoded}
+            tgt = s.forward_game.target
+            cand = []
+            for v in s.closed_f:
+                vb = s.forward_game.decodeMap(v)
+                fk = s._full_key(vb)
+                if fk in on_keys:
+                    continue
+                d = dist.get(fk)
+                if d is not None:
+                    cand.append((vb, d))
+            for vb, d in rng.sample(cand, min(OFF_PATH_PER_PUZZLE, len(cand))):
+                buffer.add(vb, tgt, goal_board, d, puzzle_id)
+                buffer.add(goal_board, tgt, vb, d, puzzle_id)
+                n_off += 2
+    return path, s, dt, n_pairs, n_off
 
 
 def rolling_mean(xs, w):
@@ -114,12 +220,12 @@ print(f"  done in {time.time()-t0:.1f}s  mean iters={np.mean(base_iters):.1f}  "
 print(f"\n[Online] batch={BATCH_SIZE} K={UPDATES_PER_SOLVE} warmup={WARMUP} "
       f"buffer={BUFFER_CAP} loss={LOSS} reg_loss={REG_LOSS} use_g={USE_G} "
       f"train_device={TRAIN_DEVICE} K_remine={K_REMINE}")
-torch.manual_seed(100)
+torch.manual_seed(SEED + 100)
 train_model = SmallCNN(MODEL_CHANNELS)
 if TRAIN_DEVICE != "cpu":
     train_model = train_model.to(TRAIN_DEVICE)
 criterion, optimizer = train_model.initialize_cr_opt(loss_type=REG_LOSS)
-torch.manual_seed(0)
+torch.manual_seed(SEED)
 print(f"  params={sum(p.numel() for p in train_model.parameters()):,}")
 
 # Search runs on a CPU twin (same object if training is already CPU).
@@ -142,6 +248,7 @@ buffer = ReplayBuffer(capacity=BUFFER_CAP)
 # ── Phase B: online solve-then-train ───────────────────────────────────────
 online_iters, online_times = [], []
 loss_hist = []
+offpath_added = []  # per-puzzle count of off-path samples harvested
 total_updates = 0
 nn_active_from = None
 first_saturated_n = None
@@ -155,8 +262,10 @@ for n, p in enumerate(puzzles):
         nn_active_from = n
         print(f"  >>> buffer warm at puzzle {n}; NN goes live <<<")
 
-    path, s, dt, n_pairs = solve_and_collect(
+    path, s, dt, n_pairs, n_off = solve_and_collect(
         p, n, search_model if use_nn else None, buffer, _rng)
+    if path:
+        offpath_added.append(n_off)
     solve_iters = s.first_meeting_iter if s.first_meeting_iter is not None else s.iteration
     online_iters.append(solve_iters)
     online_times.append(dt)
@@ -242,14 +351,21 @@ for n, p in enumerate(puzzles):
         print(f"    iters   baseline mean={bm:>7.1f} median={bmd:>7.1f}")
         print(f"    iters   online   mean={om:>7.1f} median={omd:>7.1f}")
         print(f"    speedup x_mean={bm/max(om,1):>5.2f}  x_median={bmd/max(omd,1):>5.2f}")
-        print(f"    cumulative since NN live: x_mean={cum_m:.2f}  x_median={cum_md:.2f}\n")
+        print(f"    cumulative since NN live: x_mean={cum_m:.2f}  x_median={cum_md:.2f}")
+        if COLLECT_OFF_PATH and offpath_added:
+            oa = offpath_added[sl]
+            print(f"    off-path samples: mean {np.mean(oa):.1f}/puzzle\n")
 
 t_online_total = time.time() - t_online0
 
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 print(f"\n[Done] online wall time: {t_online_total:.1f}s  "
-      f"updates={total_updates}  remined={remine_count}")
+      f"updates={total_updates}  remined={remine_count}  meeting={MEETING}")
+if COLLECT_OFF_PATH and offpath_added:
+    oa = np.array(offpath_added)
+    print(f"  off-path harvest: {oa.sum()} samples total "
+          f"(mean {oa.mean():.1f}/puzzle over {len(oa)} solved)")
 if nn_active_from is not None:
     b = np.array(base_iters[nn_active_from:])
     o = np.array(online_iters[nn_active_from:])
